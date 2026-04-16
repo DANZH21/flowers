@@ -975,10 +975,23 @@ func (ah *AdminHandler) HandleAdminSettings(c telebot.Context) error {
 		return c.Edit("❌ Ошибка при загрузке настроек")
 	}
 
-	// Получаем support_user_id из настроек или используем пустую строку
+	// Получаем значения или используем дефолтные тексты
 	supportIDStr := "Не установлен"
-	if supportID != nil {
+	if supportID != nil && *supportID != 0 {
 		supportIDStr = fmt.Sprintf("%d", *supportID)
+	}
+
+	if shopName == "" {
+		shopName = "Не установлено"
+	}
+	if address == "" {
+		address = "Не установлен"
+	}
+	if kaspiLink == "" {
+		kaspiLink = "Не установлен"
+	}
+	if aboutChannelLink == "" {
+		aboutChannelLink = "Не установлен"
 	}
 
 	msg := fmt.Sprintf(
@@ -1009,7 +1022,7 @@ func (ah *AdminHandler) HandleAdminSettings(c telebot.Context) error {
 		),
 	)
 
-	return c.Edit(msg, menu)
+	return c.Edit(msg, &telebot.SendOptions{ParseMode: telebot.ModeHTML}, menu)
 }
 
 // HandleAdminSetName начинает изменение названия

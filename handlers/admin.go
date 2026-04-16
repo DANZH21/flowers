@@ -815,9 +815,9 @@ func (ah *AdminHandler) HandleAdminBouquetPhotoInput(c telebot.Context) error {
 		return c.Send("❌ Пожалуйста, отправьте фото как картинку.")
 	}
 
-	ah.stateManager.SetTempData(userID, fmt.Sprintf("%s|||%s", tempData, extPhotoURL))
+	newData := ah.stateManager.AppendTempData(userID, fmt.Sprintf("|||%s", extPhotoURL))
 
-	newParts := strings.Split(ah.stateManager.GetTempData(userID), "|||")
+	newParts := strings.Split(newData, "|||")
 	photosCount := len(newParts) - 4
 
 	return c.Send(fmt.Sprintf("✅ Фото добавлено (%d/5). Отправьте еще или нажмите '✅ Готово'.", photosCount))

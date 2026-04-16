@@ -259,7 +259,7 @@ func (ch *ClientHandler) HandleOrderStart(c telebot.Context, bouquetID int) erro
 	// Получаем букет
 	log.Printf("   🔍 [БД] Запрашиваю букет ID=%d...\n", bouquetID)
 	row = ch.db.QueryRow(ctx,
-		`SELECT id, name, description, price, photo_url, quantity, reserved_until, reserved_by
+		`SELECT id, name, description, price, photo_urls, quantity, reserved_until, reserved_by
 		FROM bouquets WHERE id = $1`, bouquetID)
 
 	var bouquet models.Bouquet

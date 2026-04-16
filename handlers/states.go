@@ -125,6 +125,20 @@ func (sm *StateManager) GetTempData(userID int64) string {
 	return session.TempData
 }
 
+// AppendTempData securely appends to temporary data
+func (sm *StateManager) AppendTempData(userID int64, data string) string {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	session, exists := sm.sessions[userID]
+	if !exists {
+		session = &models.UserSession{}
+		sm.sessions[userID] = session
+	}
+	session.TempData = session.TempData + data
+	return session.TempData
+}
+
 // SetTempData устанавливает временные данные
 func (sm *StateManager) SetTempData(userID int64, data string) {
 	sm.mu.Lock()

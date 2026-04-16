@@ -174,3 +174,33 @@ func (sm *StateManager) ResetState(userID int64) {
 	session.CustomDraft = ""
 	session.TempData = ""
 }
+
+// AddMessageToDelete добавляет ID сообщения в список на удаление
+func (sm *StateManager) AddMessageToDelete(userID int64, msgID int) {
+sm.mu.Lock()
+defer sm.mu.Unlock()
+
+session, exists := sm.sessions[userID]
+if !exists {
+session = &models.UserSession{}
+sm.sessions[userID] = session
+}
+session.MessageIDs = append(session.MessageIDs, msgID)
+}
+
+// ClearMessagesToDelete возвращает и очищает список сообщений на удаление
+func (sm *StateManager) ClearMessagesToDelete(userID int64) []int {
+sm.mu.Lock()
+defer sm.mu.Unlock()
+
+session, exists := sm.sessions[userID]
+if !exists {
+return nil
+}
+
+msgIDs := session.MessageIDs
+session.MessageIDs = nil
+return msgIDs
+}
+
+// AddMessageToDelete добавляет ID сообщений в список для последующего удаления

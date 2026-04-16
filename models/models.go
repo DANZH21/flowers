@@ -39,16 +39,11 @@ type OrderDraft struct {
 
 // UserSession - сессия пользователя с его состоянием
 type UserSession struct {
-	State       State
-	OrderDraft  OrderDraft
-	CustomDraft string
-	TempData    string
-}
-
-// User - пользователь в системе
-type User struct {
-	TelegramID       int64
-	Username         string
+	State            State
+	OrderDraft       OrderDraft
+	CustomDraft      string
+	TempData         string
+	MessageIDs       []int // ID сообщений для удаления
 	FullName         string
 	Phone            string
 	IsAdmin          bool

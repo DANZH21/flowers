@@ -82,6 +82,13 @@ func (ch *ClientHandler) HandleStart(c telebot.Context) error {
 	// Сбрасываем состояние
 	ch.stateManager.ResetState(userID)
 
+	// Очищаем старые сообщения перед новым /start
+	messagesToDelete := ch.stateManager.ClearMessagesToDelete(userID)
+	for _, msgID := range messagesToDelete {
+		// bot.Delete expects a message struct with an ID and a Chat containing the chat ID
+		ch.bot.Delete(&telebot.Message{ID: msgID, Chat: &telebot.Chat{ID: userID}})
+	}
+
 	// Отправляем приветствие
 	text := fmt.Sprintf("🌸 Привет, %s!\n\nДобро пожаловать в магазин цветов! 🌹", c.Sender().FirstName)
 
@@ -104,7 +111,12 @@ func (ch *ClientHandler) HandleStart(c telebot.Context) error {
 
 	log.Printf("✅ [МЕНЮ] Отправляю главное меню пользователю %d\n", userID)
 
-	return c.Send(text, menu)
+	msg, err := ch.bot.Send(c.Recipient(), text, menu)
+	if err == nil {
+		ch.stateManager.AddMessageToDelete(userID, msg.ID)
+	}
+
+	return err
 }
 
 // HandleCatalog показывает каталог букетов с inline кнопками (с пагинацией)
@@ -220,7 +232,11 @@ func (ch *ClientHandler) HandleCatalogPage(c telebot.Context, page int) error {
 	}
 
 	// Отправляем новое сообщение с каталогом
-	if _, err := ch.bot.Send(c.Sender(), text, menu); err != nil {
+	msg, err := ch.bot.Send(c.Sender(), text, menu)
+if err == nil {
+ch.stateManager.AddMessageToDelete(userID, msg.ID)
+}
+if err != nil {
 		log.Printf("   ❌ [ОШИБКА] Ошибка отправки каталога: %v\n", err)
 		return err
 	}
@@ -957,12 +973,15 @@ func (ch *ClientHandler) HandleMyOrders(c telebot.Context) error {
 		orders = append(orders, fmt.Sprintf("%s #%d — %s — %s", statusEmoji, orderNumber, name, createdAt.Format("02.01.2006")))
 	}
 
+	menu := &telebot.ReplyMarkup{}
+	menu.Inline(menu.Row(telebot.Btn{Text: "⬅️ Главное меню", Unique: "main_menu"}))
+
 	if len(orders) == 0 {
-		return c.Edit("📭 У вас еще нет заказов")
+		return c.Edit("📭 У вас еще нет заказов", menu)
 	}
 
 	msg := "📦 <b>Ваши заказы:</b>\n\n" + strings.Join(orders, "\n")
-	return c.Edit(msg)
+	return c.Edit(msg, &telebot.SendOptions{ParseMode: telebot.ModeHTML}, menu)
 }
 
 // HandleCustomBouquet обрабатывает запрос на кастомный букет
@@ -971,7 +990,10 @@ func (ch *ClientHandler) HandleCustomBouquet(c telebot.Context) error {
 	ch.stateManager.SetState(userID, models.StateAwaitingCustomBouquet)
 
 	menu := &telebot.ReplyMarkup{ForceReply: true}
-	return c.Send("🎨 Опишите, какой букет вы хотите видеть:\n(цветы, цвета, повод, бюджет, и э.uд.)", menu)
+	// We want to force reply, and also add an inline keyboard? Telebot usually overrides ReplyMarkup if both are used, but often ForceReply works alongside InlineKeyboard if telebot allows.
+	// Actually, let's just make it a normal send without ForceReply if it has inline layout, or keep ForceReply.
+	menu.Inline(menu.Row(telebot.Btn{Text: "⬅️ Главное меню", Unique: "main_menu"}))
+	return c.Send("🎨 Опишите, какой букет вы хотите видеть:\n(цветы, цвета, повод, бюджет, и т.д.)", menu)
 }
 
 // HandleCustomBouquetInput обрабатывает описание кастомного букета
@@ -1021,6 +1043,7 @@ func (ch *ClientHandler) HandleAbout(c telebot.Context) error {
 	menu := &telebot.ReplyMarkup{}
 	menu.Inline(
 		menu.Row(telebot.Btn{Text: "📢 Наш канал", URL: link}),
+		menu.Row(telebot.Btn{Text: "⬅️ Главное меню", Unique: "main_menu"}),
 	)
 
 	return c.Edit("ℹ️ Подпишитесь на наш канал для новых букетов и информации:", menu)
@@ -1036,7 +1059,9 @@ func (ch *ClientHandler) HandleAddress(c telebot.Context) error {
 		return c.Edit("📍 Адрес магазина не установлен")
 	}
 
-	return c.Edit(fmt.Sprintf("📍 <b>Наш адрес:</b>\n%s", address), &telebot.SendOptions{ParseMode: telebot.ModeHTML})
+	menu := &telebot.ReplyMarkup{}
+	menu.Inline(menu.Row(telebot.Btn{Text: "⬅️ Главное меню", Unique: "main_menu"}))
+	return c.Edit(fmt.Sprintf("📍 <b>Наш адрес:</b>\n%s", address), &telebot.SendOptions{ParseMode: telebot.ModeHTML}, menu)
 }
 
 // HandleSupport показывает кнопку поддержки
@@ -1052,6 +1077,7 @@ func (ch *ClientHandler) HandleSupport(c telebot.Context) error {
 	menu := &telebot.ReplyMarkup{}
 	menu.Inline(
 		menu.Row(telebot.Btn{Text: "💬 Написать в поддержку", URL: fmt.Sprintf("tg://user?id=%d", *supportID)}),
+		menu.Row(telebot.Btn{Text: "⬅️ Главное меню", Unique: "main_menu"}),
 	)
 
 	return c.Edit("Нажмите на кнопку, чтобы написать нашей службе поддержки:", menu)

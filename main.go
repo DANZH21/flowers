@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -352,6 +353,21 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	// Фейковый HTTP сервер для Render, чтобы сервис не упал
+	go func() {
+		port := os.Getenv("PORT")
+		if port == "" {
+			port = "8080"
+		}
+		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte("Flower Bot is running\n"))
+		})
+		log.Printf("🌐 Запуск HTTP сервера на порту %s (для Render)\n", port)
+		if err := http.ListenAndServe(":"+port, nil); err != nil {
+			log.Printf("⚠️ Ошибка HTTP сервера: %v\n", err)
+		}
+	}()
 
 	// Запускаем бота в отдельной горутине
 	go func() {

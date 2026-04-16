@@ -1,0 +1,45 @@
+# Compiled files
+*.exe
+*.exe~
+*.dll
+*.so
+*.so.*
+*.dylib
+
+# Test binaries
+*.test
+*.out
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+
+# Output of coverage tool
+*.out
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment
+.env
+.env.local
+
+# Binary
+flower-bot
+
+# Logs
+*.log
+
+# Docker
+.dockerignore
+
+# Database
+*.db
+*.sqlite

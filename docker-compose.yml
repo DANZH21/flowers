@@ -1,0 +1,56 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: flower_bot_db
+    environment:
+      POSTGRES_USER: ${DB_USER:-flower_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-flower_password}
+      POSTGRES_DB: ${DB_NAME:-flower_bot}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-flower_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - flower_network
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: flower_bot_app
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      ADMIN_IDS: ${ADMIN_IDS}
+      DATABASE_URL: postgres://${DB_USER:-flower_user}:${DB_PASSWORD:-flower_password}@postgres:5432/${DB_NAME:-flower_bot}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-flower_user}
+      DB_PASSWORD: ${DB_PASSWORD:-flower_password}
+      DB_NAME: ${DB_NAME:-flower_bot}
+      SHOP_NAME: ${SHOP_NAME:-Flower Shop}
+      SHOP_ADDRESS: ${SHOP_ADDRESS:-Almaty, Kazakhstan}
+      SUPPORT_USER_ID: ${SUPPORT_USER_ID}
+      KASPI_LINK: ${KASPI_LINK}
+      ABOUT_CHANNEL_LINK: ${ABOUT_CHANNEL_LINK}
+      ENV: ${ENV:-production}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - flower_network
+    restart: on-failure
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  flower_network:
+    driver: bridge

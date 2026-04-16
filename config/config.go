@@ -30,6 +30,14 @@ type Config struct {
 
 	// Environment
 	Env string
+
+	// S3 (Scaleway / AWS)
+	S3AccessKey string
+	S3SecretKey string
+	S3Bucket    string
+	S3Region    string
+	S3Endpoint  string
+	S3PublicURL string
 }
 
 // LoadConfig загружает конфиг из .env файла
@@ -50,6 +58,13 @@ func LoadConfig() (*Config, error) {
 		KaspiLink:        os.Getenv("KASPI_LINK"),
 		AboutChannelLink: os.Getenv("ABOUT_CHANNEL_LINK"),
 		Env:              os.Getenv("ENV"),
+
+		S3AccessKey: os.Getenv("S3_ACCESS_KEY"),
+		S3SecretKey: os.Getenv("S3_SECRET_KEY"),
+		S3Bucket:    os.Getenv("S3_BUCKET"),
+		S3Region:    os.Getenv("S3_REGION"),
+		S3Endpoint:  os.Getenv("S3_ENDPOINT"),
+		S3PublicURL: os.Getenv("S3_PUBLIC_URL"),
 	}
 
 	// Парсим AdminIDs

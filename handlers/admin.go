@@ -3,14 +3,17 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"flower-bot/db"
 	"flower-bot/models"
 	"flower-bot/scheduler"
+	"flower-bot/services"
 
 	"gopkg.in/telebot.v3"
 )
@@ -716,58 +719,108 @@ func (ah *AdminHandler) HandleAdminBouquetQtyInput(c telebot.Context) error {
 	ah.stateManager.SetTempData(userID, fmt.Sprintf("%s|||%s", tempData, text))
 	ah.stateManager.SetState(userID, models.StateAdminAddBouquetPhoto)
 
-	menu := &telebot.ReplyMarkup{ForceReply: true}
-	return c.Send("📸 Отправьте фото букета или вставьте S3 ссылку:", menu)
+	menu := &telebot.ReplyMarkup{RemoveKeyboard: true}
+	btnDone := menu.Text("✅ Готово")
+	menu.Reply(
+		menu.Row(btnDone),
+	)
+
+	return c.Send("📸 Отправьте фото букета (до 5 штук, можно альбомом). После отправки всех фото нажмите кнопку \"✅ Готово\":", menu)
 }
 
 // HandleAdminBouquetPhotoInput обрабатывает фото букета
 func (ah *AdminHandler) HandleAdminBouquetPhotoInput(c telebot.Context) error {
 	ctx := context.Background()
 	userID := c.Sender().ID
-	var photoURL string
-
-	if c.Message().Photo != nil {
-		photoURL = c.Message().Photo.FileID
-	} else {
-		photoURL = c.Message().Text
-	}
 
 	tempData := ah.stateManager.GetTempData(userID)
 	parts := strings.Split(tempData, "|||")
 
-	if len(parts) != 4 {
-		return c.Edit("❌ Ошибка во время добавления букета")
+	// Если пользователь нажал кнопку Готово
+	if c.Message().Text == "✅ Готово" {
+		if len(parts) < 5 {
+			return c.Send("❌ Вы не добавили ни одного фото. Отправьте хотя бы одно фото.", &telebot.ReplyMarkup{RemoveKeyboard: true})
+		}
+
+		name := parts[0]
+		description := parts[1]
+		price, _ := strconv.ParseFloat(parts[2], 64)
+		qty, _ := strconv.ParseInt(parts[3], 10, 64)
+
+		var photoURLs []string
+		for i := 4; i < len(parts); i++ {
+			if parts[i] != "" {
+				photoURLs = append(photoURLs, parts[i])
+			}
+		}
+
+		// Добавляем букет в БД
+		var bouquetID int
+		err := ah.db.QueryRow(ctx,
+			`INSERT INTO bouquets (name, description, price, photo_urls, quantity, is_available, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, NOW())
+			RETURNING id`,
+			name, description, price, photoURLs, qty, true).Scan(&bouquetID)
+
+		if err != nil {
+			log.Printf("❌ Ошибка добавления букета: %v\n", err)
+			return c.Send("❌ Ошибка при добавлении букета", &telebot.ReplyMarkup{RemoveKeyboard: true})
+		}
+
+		log.Printf("✅ Добавлен букет #%d\n", bouquetID)
+		ah.stateManager.ResetState(userID)
+
+		msg := fmt.Sprintf("✅ <b>Букет добавлен!</b>\n\n"+
+			"🌸 %s\n"+
+			"💰 %g тг\n"+
+			"📦 %d шт",
+			name, price, qty)
+
+		return c.Send(msg, &telebot.SendOptions{ParseMode: telebot.ModeHTML}, &telebot.ReplyMarkup{RemoveKeyboard: true})
 	}
 
-	name := parts[0]
-	description := parts[1]
-	price, _ := strconv.ParseFloat(parts[2], 64)
-	qty, _ := strconv.ParseInt(parts[3], 10, 64)
-
-	// Добавляем букет в БД
-	var bouquetID int
-	err := ah.db.QueryRow(ctx,
-		`INSERT INTO bouquets (name, description, price, photo_url, quantity, is_available, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, NOW())
-		RETURNING id`,
-		name, description, price, photoURL, qty, true).Scan(&bouquetID)
-
-	if err != nil {
-		log.Printf("❌ Ошибка добавления букета: %v\n", err)
-		return c.Edit("❌ Ошибка при добавлении букета")
+	// Обработка загрузки фото
+	if len(parts) >= 9 {
+		return c.Send("❌ Вы уже загрузили 5 фото. Нажмите кнопку '✅ Готово'.")
 	}
 
-	log.Printf("✅ Добавлен букет #%d\n", bouquetID)
+	var extPhotoURL string
+	if c.Message().Photo != nil {
+		file, err := ah.bot.FileByID(c.Message().Photo.FileID)
+		if err != nil {
+			return c.Send("❌ Ошибка получения файла от Telegram")
+		}
 
-	ah.stateManager.ResetState(userID)
+		rc, err := ah.bot.File(&file)
+		if err != nil {
+			return c.Send("❌ Ошибка скачивания файла")
+		}
+		defer rc.Close()
 
-	msg := fmt.Sprintf("✅ <b>Букет добавлен!</b>\n\n"+
-		"🌸 %s\n"+
-		"💰 %g тг\n"+
-		"📦 %d шт",
-		name, price, qty)
+		fileBytes, err := io.ReadAll(rc)
+		if err != nil {
+			return c.Send("❌ Ошибка чтения файла")
+		}
 
-	return c.Edit(msg, &telebot.SendOptions{ParseMode: telebot.ModeHTML})
+		fileName := fmt.Sprintf("product_%d_%s.jpg", time.Now().UnixNano(), c.Message().Photo.FileID[:10])
+		s3url, err := services.UploadFileToS3(fileBytes, fileName, "image/jpeg", "products")
+		if err != nil {
+			log.Printf("S3 upload err: %v", err)
+			return c.Send("❌ Ошибка загрузки в S3")
+		}
+		extPhotoURL = s3url
+	} else if c.Message().Text != "" {
+		extPhotoURL = c.Message().Text
+	} else {
+		return c.Send("❌ Пожалуйста, отправьте фото как картинку.")
+	}
+
+	ah.stateManager.SetTempData(userID, fmt.Sprintf("%s|||%s", tempData, extPhotoURL))
+
+	newParts := strings.Split(ah.stateManager.GetTempData(userID), "|||")
+	photosCount := len(newParts) - 4
+
+	return c.Send(fmt.Sprintf("✅ Фото добавлено (%d/5). Отправьте еще или нажмите '✅ Готово'.", photosCount))
 }
 
 // HandleAdminToggleBouquet скрывает/показывает букет

@@ -123,7 +123,7 @@ func (ch *ClientHandler) HandleCatalogPage(c telebot.Context, page int) error {
 	// Получаем букеты из БД
 	log.Printf("   🔍 [БД] Запрашиваю букеты...\n")
 	rows, err := ch.db.Query(ctx,
-		`SELECT id, name, price, photo_url, quantity, is_available, reserved_until, reserved_by
+		`SELECT id, name, price, photo_urls, quantity, is_available, reserved_until, reserved_by
 		FROM bouquets ORDER BY created_at DESC`)
 	if err != nil {
 		log.Printf("   ❌ [БД] Ошибка получения букетов: %v\n", err)
@@ -134,7 +134,7 @@ func (ch *ClientHandler) HandleCatalogPage(c telebot.Context, page int) error {
 	bouquets := []*models.Bouquet{}
 	for rows.Next() {
 		var b models.Bouquet
-		if err := rows.Scan(&b.ID, &b.Name, &b.Price, &b.PhotoURL, &b.Quantity, &b.IsAvailable, &b.ReservedUntil, &b.ReservedBy); err != nil {
+		if err := rows.Scan(&b.ID, &b.Name, &b.Price, &b.PhotoURLs, &b.Quantity, &b.IsAvailable, &b.ReservedUntil, &b.ReservedBy); err != nil {
 			log.Printf("   ⚠️ [БД] Ошибка сканирования букета: %v\n", err)
 			continue
 		}
@@ -263,7 +263,7 @@ func (ch *ClientHandler) HandleOrderStart(c telebot.Context, bouquetID int) erro
 		FROM bouquets WHERE id = $1`, bouquetID)
 
 	var bouquet models.Bouquet
-	if err := row.Scan(&bouquet.ID, &bouquet.Name, &bouquet.Description, &bouquet.Price, &bouquet.PhotoURL, &bouquet.Quantity, &bouquet.ReservedUntil, &bouquet.ReservedBy); err != nil {
+	if err := row.Scan(&bouquet.ID, &bouquet.Name, &bouquet.Description, &bouquet.Price, &bouquet.PhotoURLs, &bouquet.Quantity, &bouquet.ReservedUntil, &bouquet.ReservedBy); err != nil {
 		log.Printf("   ❌ [БД] Ошибка получения букета: %v\n", err)
 		return c.Edit("❌ Букет не найден")
 	}
@@ -297,9 +297,37 @@ func (ch *ClientHandler) HandleOrderStart(c telebot.Context, bouquetID int) erro
 		menu.Row(telebot.Btn{Text: "◀️ Назад в каталог", Unique: "back_to_catalog"}),
 	)
 
-	photoURL := strings.TrimSpace(bouquet.PhotoURL)
-
 	// Если есть валидное фото, отправляем с фото
+
+	if len(bouquet.PhotoURLs) > 1 {
+		log.Printf("   📸 [АЛЬБОМ] Отправляю фото альбомом\n")
+		var album telebot.Album
+		for i, pURL := range bouquet.PhotoURLs {
+			pURL = strings.TrimSpace(pURL)
+			if pURL != "" && pURL != "NULL" && strings.HasPrefix(pURL, "http") {
+				photo := &telebot.Photo{File: telebot.FromURL(pURL)}
+				if i == 0 {
+					photo.Caption = caption
+				}
+				album = append(album, photo)
+			}
+		}
+
+		if len(album) > 0 {
+			ch.bot.SendAlbum(c.Sender(), album)
+			// Альбом не поддерживает кнопки, поэтому отправляем отдельным сообщением
+			if _, err := ch.bot.Send(c.Sender(), "Выберите действие:", menu); err != nil {
+				return err
+			}
+			return nil
+		}
+	}
+
+	var photoURL string
+	if len(bouquet.PhotoURLs) > 0 {
+		photoURL = strings.TrimSpace(bouquet.PhotoURLs[0])
+	}
+
 	if photoURL != "" && photoURL != "NULL" && strings.HasPrefix(photoURL, "http") {
 		log.Printf("   📸 [ФОТО] Отправляю с фото\n")
 		photo := &telebot.Photo{File: telebot.FromURL(photoURL)}

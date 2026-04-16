@@ -40,7 +40,7 @@ func (d *Database) RunMigrations(ctx context.Context, cfg *config.Config) error 
 			name TEXT NOT NULL,
 			description TEXT,
 			price NUMERIC(10,2) NOT NULL,
-			photo_url TEXT NOT NULL,
+			photo_urls TEXT[] DEFAULT '{}',
 			quantity INT NOT NULL DEFAULT 1,
 			is_available BOOLEAN DEFAULT TRUE,
 			reserved_until TIMESTAMPTZ,
@@ -86,6 +86,9 @@ func (d *Database) RunMigrations(ctx context.Context, cfg *config.Config) error 
 		`CREATE INDEX IF NOT EXISTS idx_custom_orders_user_id ON custom_orders(user_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_bouquets_available ON bouquets(is_available)`,
 		`CREATE INDEX IF NOT EXISTS idx_users_is_admin ON users(is_admin)`,
+
+		// Миграция photo_url -> photo_urls
+		`ALTER TABLE bouquets ADD COLUMN IF NOT EXISTS photo_urls TEXT[] DEFAULT '{}'`,
 	}
 
 	for _, migration := range migrations {

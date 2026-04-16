@@ -73,7 +73,7 @@ type Bouquet struct {
 	Name          string
 	Description   string
 	Price         float64
-	PhotoURL      string
+	PhotoURLs     []string
 	Quantity      int
 	IsAvailable   bool
 	ReservedUntil *time.Time

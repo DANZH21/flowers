@@ -14,6 +14,7 @@ import (
 	"flower-bot/db"
 	"flower-bot/handlers"
 	"flower-bot/scheduler"
+	"flower-bot/services"
 
 	"gopkg.in/telebot.v3"
 )
@@ -32,6 +33,11 @@ func main() {
 
 	if cfg.DatabaseURL == "" {
 		log.Fatalf("❌ DATABASE_URL не установлен")
+	}
+
+	// Инициализация S3
+	if err := services.InitS3(cfg.S3AccessKey, cfg.S3SecretKey, cfg.S3Bucket, cfg.S3Region, cfg.S3Endpoint, cfg.S3PublicURL); err != nil {
+		log.Printf("⚠️ S3 not initialized properly or credentials missing: %v", err)
 	}
 
 	log.Println("🚀 Запуск Flower Bot...")

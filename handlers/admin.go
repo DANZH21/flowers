@@ -466,11 +466,49 @@ func (ah *AdminHandler) HandleAdminPaymentAcceptYes(c telebot.Context, orderID i
 
 	// Уменьшаем количество букета
 	if bouquetID != nil && *bouquetID > 0 {
-		_, err := ah.db.Exec(ctx,
-			`UPDATE bouquets SET quantity = quantity - 1, is_available = (quantity - 1) > 0,
-			reserved_by = NULL, reserved_until = NULL WHERE id = $1`, *bouquetID)
-		if err != nil {
-			log.Printf("❌ Ошибка обновления букета: %v\n", err)
+		// Получаем текущее количество и фото до обновления
+		row := ah.db.QueryRow(ctx,
+			`SELECT quantity, photo_urls FROM bouquets WHERE id = $1`, *bouquetID)
+		var currentQty int
+		var photoURLs []string
+		if err := row.Scan(&currentQty, &photoURLs); err == nil {
+			// Уменьшаем на 1
+			newQty := currentQty - 1
+
+			// Обновляем букет
+			_, err := ah.db.Exec(ctx,
+				`UPDATE bouquets SET quantity = quantity - 1, is_available = (quantity - 1) > 0,
+				reserved_by = NULL, reserved_until = NULL WHERE id = $1`, *bouquetID)
+			if err != nil {
+				log.Printf("❌ Ошибка обновления букета: %v\n", err)
+			}
+
+			// Если количество стало 0 - удаляем букет и его фотки
+			if newQty <= 0 {
+				log.Printf("🗑️ Удаляю букет #%d т.к. quantity = 0\n", *bouquetID)
+
+				// Удаляем фотки из S3
+				for _, photoURL := range photoURLs {
+					// Извлекаем имя файла из URL (последняя часть после последнего /)
+					parts := strings.Split(photoURL, "/")
+					if len(parts) > 0 {
+						fileName := parts[len(parts)-1]
+						if err := services.DeleteFileFromS3(fileName, "products"); err != nil {
+							log.Printf("⚠️ Ошибка удаления фото из S3: %v\n", err)
+						} else {
+							log.Printf("✅ Фото удалено из S3: %s\n", fileName)
+						}
+					}
+				}
+
+				// Удаляем букет из БД
+				_, err := ah.db.Exec(ctx, `DELETE FROM bouquets WHERE id = $1`, *bouquetID)
+				if err != nil {
+					log.Printf("❌ Ошибка удаления букета: %v\n", err)
+				} else {
+					log.Printf("✅ Букет #%d удалён из БД\n", *bouquetID)
+				}
+			}
 		}
 	}
 

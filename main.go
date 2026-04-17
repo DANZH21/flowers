@@ -142,6 +142,10 @@ func main() {
 			if adminHandler.IsAdmin(userID) {
 				return adminHandler.HandleAdminSetKaspiInput(c)
 			}
+		case StateAdminSetChannelLink:
+			if adminHandler.IsAdmin(userID) {
+				return adminHandler.HandleAdminSetChannelInput(c)
+			}
 		case StateAdminAddBouquetName:
 			if adminHandler.IsAdmin(userID) {
 				return adminHandler.HandleAdminBouquetNameInput(c)
@@ -590,6 +594,7 @@ const (
 	StateAdminSetPrice
 	StateAdminSetSupportID
 	StateAdminSetKaspiLink
+	StateAdminSetChannelLink
 	StateAdminSetShopName
 	StateAdminSetAddress
 	StateAdminAddBouquetName

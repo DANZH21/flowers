@@ -1183,8 +1183,11 @@ func (ah *AdminHandler) HandleAdminSetKaspiInput(c telebot.Context) error {
 
 // HandleAdminSetChannel начинает изменение ссылки на канал
 func (ah *AdminHandler) HandleAdminSetChannel(c telebot.Context) error {
+	userID := c.Sender().ID
+	ah.stateManager.SetState(userID, models.StateAdminSetChannelLink)
+
 	menu := &telebot.ReplyMarkup{ForceReply: true}
-	return c.Edit("📢 Введите ссылку на канал 'О нас':", menu)
+	return c.Send("📢 Введите ссылку на канал 'О нас':", menu)
 }
 
 // HandleAdminSetChannelInput обрабатывает новую ссылку на канал
@@ -1194,17 +1197,17 @@ func (ah *AdminHandler) HandleAdminSetChannelInput(c telebot.Context) error {
 	text := c.Message().Text
 
 	if text == "" || len(text) < 5 {
-		return c.Edit("❌ Пожалуйста, введите корректную ссылку")
+		return c.Send("❌ Пожалуйста, введите корректную ссылку")
 	}
 
 	_, err := ah.db.Exec(ctx,
 		`UPDATE shop_settings SET about_channel_link = $1`, text)
 	if err != nil {
-		return c.Edit("❌ Ошибка обновления")
+		return c.Send("❌ Ошибка обновления")
 	}
 
 	ah.stateManager.ResetState(userID)
-	return c.Edit("✅ Ссылка на канал обновлена")
+	return c.Send("✅ Ссылка на канал обновлена")
 }
 
 // ========== СТАТИСТИКА ==========

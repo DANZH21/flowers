@@ -17,6 +17,7 @@ const (
 	StateAdminSetPrice
 	StateAdminSetSupportID
 	StateAdminSetKaspiLink
+	StateAdminSetChannelLink
 	StateAdminSetShopName
 	StateAdminSetAddress
 	StateAdminAddBouquetName

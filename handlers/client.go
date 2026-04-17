@@ -198,7 +198,9 @@ func (ch *ClientHandler) HandleCatalogPage(c telebot.Context, page int) error {
 
 	// Кнопки для каждого букета на странице
 	for _, b := range pageBouquets {
-		isReservedByOther := b.ReservedUntil != nil && b.ReservedUntil.After(time.Now()) &&
+		// Проверяем резерв ТОЛЬКО если это последний букет в наличии
+		isReservedByOther := b.Quantity <= 1 &&
+			b.ReservedUntil != nil && b.ReservedUntil.After(time.Now()) &&
 			(b.ReservedBy == nil || *b.ReservedBy != userID)
 
 		var btn telebot.Btn
@@ -292,8 +294,9 @@ func (ch *ClientHandler) HandleOrderStart(c telebot.Context, bouquetID int) erro
 		return c.Edit("❌ Букет нет в наличии")
 	}
 
-	// Проверяем резерв - блокируем только если зарезервирован ДРУГИМ пользователем
-	isReservedByOther := bouquet.ReservedUntil != nil && bouquet.ReservedUntil.After(time.Now()) &&
+	// Проверяем резерв - блокируем только если это последний букет и он зарезервирован ДРУГИМ пользователем
+	isReservedByOther := bouquet.Quantity <= 1 &&
+		bouquet.ReservedUntil != nil && bouquet.ReservedUntil.After(time.Now()) &&
 		(bouquet.ReservedBy == nil || *bouquet.ReservedBy != userID)
 	if isReservedByOther {
 		log.Printf("   ❌ Букет зарезервирован другим пользователем до: %v\n", bouquet.ReservedUntil)
@@ -392,25 +395,25 @@ func (ch *ClientHandler) HandleOrderConfirmFromDetails(c telebot.Context, bouque
 		return c.Edit("❌ Букет нет в наличии")
 	}
 
-	// Проверяем резерв - блокируем только если зарезервирован ДРУГИМ пользователем
-	isReservedByOther := bouquet.ReservedUntil != nil && bouquet.ReservedUntil.After(time.Now()) &&
+	// Проверяем резерв - блокируем только если это последний букет и он зарезервирован ДРУГИМ пользователем
+	isReservedByOther := bouquet.Quantity <= 1 &&
+		bouquet.ReservedUntil != nil && bouquet.ReservedUntil.After(time.Now()) &&
 		(bouquet.ReservedBy == nil || *bouquet.ReservedBy != userID)
 	if isReservedByOther {
 		log.Printf("   ❌ Букет зарезервирован другим пользователем\n")
 		return c.Edit("⏳ Букет уже зарезервирован другим пользователем")
 	}
 
-	// Резервируем букет и уменьшаем количество
+	// Резервируем букет (БЕЗ вычитания quantity! Вычитаем только при подтверждении админом)
 	log.Printf("   💾 [БД] Резервирую букет на 30 минут...\n")
 	_, err := ch.db.Exec(ctx,
-		`UPDATE bouquets SET reserved_by = $1, reserved_until = NOW() + INTERVAL '30 minutes', 
-		quantity = quantity - 1, is_available = (quantity - 1) > 0
+		`UPDATE bouquets SET reserved_by = $1, reserved_until = NOW() + INTERVAL '30 minutes'
 		WHERE id = $2`, userID, bouquetID)
 	if err != nil {
 		log.Printf("   ❌ Ошибка резервирования букета: %v\n", err)
 		return c.Edit("❌ Ошибка при резервировании букета")
 	}
-	log.Printf("   ✅ [БД] Букет зарезервирован, quantity -1\n")
+	log.Printf("   ✅ [БД] Букет зарезервирован (блокирован на 30 минут)\n")
 
 	// Расписываем таймер на снятие резерва
 	ch.scheduler.ScheduleReservationExpiry(bouquetID, userID, 30*time.Minute)
@@ -852,10 +855,9 @@ func (ch *ClientHandler) HandleCancelOrder(c telebot.Context) error {
 
 	draft := ch.stateManager.GetOrderDraft(userID)
 	if draft != nil {
-		// Снимаем резерв с букета и возвращаем quantity
+		// Снимаем резерв (quantity не трогаем - он уменьшится только при подтверждении админом)
 		_, err := ch.db.Exec(ctx,
-			`UPDATE bouquets SET reserved_by = NULL, reserved_until = NULL, 
-			quantity = quantity + 1, is_available = true WHERE id = $1`,
+			`UPDATE bouquets SET reserved_by = NULL, reserved_until = NULL WHERE id = $1`,
 			draft.BouquetID)
 		if err != nil {
 			log.Printf("❌ Ошибка снятия резерва: %v\n", err)

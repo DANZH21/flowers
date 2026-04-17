@@ -41,10 +41,9 @@ func (s *Scheduler) ScheduleReservationExpiry(bouquetID int, userID int64, durat
 	s.timers[key] = time.AfterFunc(duration, func() {
 		ctx := context.Background()
 
-		// Снимаем резерв и возвращаем quantity
+		// Снимаем резерв (quantity не трогаем - отсчёт только при подтверждении админом)
 		_, err := s.db.Exec(ctx,
-			`UPDATE bouquets SET reserved_by = NULL, reserved_until = NULL, 
-			quantity = quantity + 1, is_available = true WHERE id = $1`,
+			`UPDATE bouquets SET reserved_by = NULL, reserved_until = NULL WHERE id = $1`,
 			bouquetID)
 		if err != nil {
 			log.Printf("❌ Ошибка снятия резерва букета %d: %v\n", bouquetID, err)
@@ -102,11 +101,10 @@ func (s *Scheduler) ScheduleReceiptDeadline(orderID int, userID int64, duration 
 			return
 		}
 
-		// Возвращаем букет в каталог если был резерв
+		// Возвращаем букет в каталог если был резерв (снимаем флаги, quantity не трогаем)
 		if bouquetID != nil && *bouquetID > 0 {
 			_, err := s.db.Exec(ctx,
-				`UPDATE bouquets SET reserved_by = NULL, reserved_until = NULL, 
-				quantity = quantity + 1, is_available = true WHERE id = $1`,
+				`UPDATE bouquets SET reserved_by = NULL, reserved_until = NULL WHERE id = $1`,
 				*bouquetID)
 			if err != nil {
 				log.Printf("❌ Ошибка возврата букета %d: %v\n", *bouquetID, err)

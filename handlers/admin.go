@@ -464,7 +464,7 @@ func (ah *AdminHandler) HandleAdminPaymentAcceptYes(c telebot.Context, orderID i
 		return c.Edit("❌ Ошибка обновления")
 	}
 
-	// Уменьшаем количество букета
+	// Уменьшаем количество букета ОДИН РАЗ при подтверждении оплаты
 	if bouquetID != nil && *bouquetID > 0 {
 		// Получаем текущее количество и фото до обновления
 		row := ah.db.QueryRow(ctx,
@@ -475,7 +475,7 @@ func (ah *AdminHandler) HandleAdminPaymentAcceptYes(c telebot.Context, orderID i
 			// Уменьшаем на 1
 			newQty := currentQty - 1
 
-			// Обновляем букет
+			// Обновляем букет: уменьшаем quantity и снимаем флаги резерва
 			_, err := ah.db.Exec(ctx,
 				`UPDATE bouquets SET quantity = quantity - 1, is_available = (quantity - 1) > 0,
 				reserved_by = NULL, reserved_until = NULL WHERE id = $1`, *bouquetID)

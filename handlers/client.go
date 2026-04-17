@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"regexp"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"flower-bot/db"
 	"flower-bot/models"
 	"flower-bot/scheduler"
+	"flower-bot/services"
 
 	"gopkg.in/telebot.v3"
 )
@@ -1006,25 +1008,105 @@ func (ch *ClientHandler) HandleCustomBouquet(c telebot.Context) error {
 
 // HandleCustomBouquetInput обрабатывает описание кастомного букета
 func (ch *ClientHandler) HandleCustomBouquetInput(c telebot.Context) error {
-	ctx := context.Background()
 	userID := c.Sender().ID
 	text := c.Message().Text
 
 	if text == "" || len(text) < 10 {
-		return c.Edit("❌ Пожалуйста, напишите подробное описание букета")
+		return c.Send("❌ Пожалуйста, напишите подробное описание букета")
+	}
+
+	// Сохраняем описание во временные данные
+	ch.stateManager.SetTempData(userID, text)
+
+	// Спрашиваем добавить ли фото
+	ch.stateManager.SetState(userID, models.StateAwaitingCustomBouquetPhoto)
+	menu := &telebot.ReplyMarkup{}
+	menu.Inline(
+		menu.Row(
+			telebot.Btn{Text: "📸 Загрузить фото", Unique: fmt.Sprintf("custom_add_photo_%d", userID)},
+			telebot.Btn{Text: "⏭️ Без фото", Unique: fmt.Sprintf("custom_no_photo_%d", userID)},
+		),
+	)
+
+	return c.Send("📸 Хотите загрузить фото вашего букета? (опционально)", menu)
+}
+
+// HandleCustomBouquetPhotoYes запрашивает загрузку фото
+func (ch *ClientHandler) HandleCustomBouquetPhotoYes(c telebot.Context) error {
+	userID := c.Sender().ID
+	ch.stateManager.SetState(userID, models.StateAwaitingCustomBouquetPhoto)
+	return c.Send("📸 Отправьте фото букета:", &telebot.ReplyMarkup{ForceReply: true})
+}
+
+// HandleCustomBouquetPhotoNo сохраняет букет без фото
+func (ch *ClientHandler) HandleCustomBouquetPhotoNo(c telebot.Context) error {
+	return ch.SaveCustomBouquetOrder(c, "")
+}
+
+// HandleCustomBouquetPhotoInput обрабатывает загрузку фото для кастомного букета
+func (ch *ClientHandler) HandleCustomBouquetPhotoInput(c telebot.Context) error {
+	if c.Message().Photo == nil {
+		return c.Send("❌ Пожалуйста, отправьте фото")
+	}
+
+	// Загружаем фото в S3
+	file, err := ch.bot.FileByID(c.Message().Photo.FileID)
+	if err != nil {
+		log.Printf("❌ Ошибка получения фото: %v\n", err)
+		return c.Send("❌ Ошибка при загрузке фото")
+	}
+
+	rc, err := ch.bot.File(&file)
+	if err != nil {
+		log.Printf("❌ Ошибка открытия файла: %v\n", err)
+		return c.Send("❌ Ошибка при обработке фото")
+	}
+	defer rc.Close()
+
+	fileBytes, err := io.ReadAll(rc)
+	if err != nil {
+		log.Printf("❌ Ошибка чтения файла: %v\n", err)
+		return c.Send("❌ Ошибка при загрузке фото")
+	}
+
+	// Генерируем имя файла
+	fileName := fmt.Sprintf("custom_%d_%s.jpg", time.Now().UnixNano(), c.Message().Photo.FileID[:10])
+
+	// Загружаем в S3
+	photoURL, err := services.UploadFileToS3(fileBytes, fileName, "image/jpeg", "custom")
+	if err != nil {
+		log.Printf("❌ Ошибка загрузки фото в S3: %v\n", err)
+		return c.Send("❌ Ошибка при загрузке фото")
+	}
+
+	log.Printf("✅ Фото загружено в S3: %s\n", photoURL)
+
+	// Сохраняем заказ с фото
+	return ch.SaveCustomBouquetOrder(c, photoURL)
+}
+
+// SaveCustomBouquetOrder сохраняет кастомный букет с описанием и опциональным фото
+func (ch *ClientHandler) SaveCustomBouquetOrder(c telebot.Context, photoURL string) error {
+	ctx := context.Background()
+	userID := c.Sender().ID
+
+	// Получаем описание из временных данных
+	description := ch.stateManager.GetTempData(userID)
+	if description == "" {
+		description = "Без описания"
 	}
 
 	// Сохраняем кастомный букет в БД
 	var customOrderID int
 	err := ch.db.QueryRow(ctx,
-		`INSERT INTO custom_orders (user_id, description, status, created_at)
-		VALUES ($1, $2, $3, NOW())
+		`INSERT INTO custom_orders (user_id, description, photo_url, status, created_at)
+		VALUES ($1, $2, $3, $4, NOW())
 		RETURNING id`,
-		userID, text, models.CustomOrderStatusPending).Scan(&customOrderID)
+		userID, description, photoURL, models.CustomOrderStatusPending).Scan(&customOrderID)
 
 	if err != nil {
 		log.Printf("❌ Ошибка создания кастомного букета: %v\n", err)
-		return c.Edit("❌ Ошибка при создании заказа")
+		return c.Send("❌ Ошибка при создании заказа")
 	}
 
 	log.Printf("✅ Создан кастомный букет #%d пользователем %d\n", customOrderID, userID)
@@ -1033,9 +1115,9 @@ func (ch *ClientHandler) HandleCustomBouquetInput(c telebot.Context) error {
 	ch.stateManager.ResetState(userID)
 
 	// Уведомляем админа
-	ch.NotifyAdminCustomBouquet(ctx, customOrderID, userID, text)
+	ch.NotifyAdminCustomBouquet(ctx, customOrderID, userID, description, photoURL)
 
-	return c.Edit("✅ Ваша заявка отправлена администратору! 🎨\n\nОжидайте ответа с предложением по цене.")
+	return c.Send("✅ Ваша заявка отправлена администратору! 🎨\n\nОжидайте ответа с предложением по цене.")
 }
 
 // HandleAbout показывает информацию о магазине
@@ -1186,7 +1268,7 @@ func (ch *ClientHandler) NotifyAdminReceiptReceived(ctx context.Context, orderID
 }
 
 // NotifyAdminCustomBouquet уведомляет админа о новом кастомном букете
-func (ch *ClientHandler) NotifyAdminCustomBouquet(ctx context.Context, customOrderID int, userID int64, description string) {
+func (ch *ClientHandler) NotifyAdminCustomBouquet(ctx context.Context, customOrderID int, userID int64, description string, photoURL string) {
 	// Получаем информацию о пользователе
 	row := ch.db.QueryRow(ctx, "SELECT full_name, phone FROM users WHERE telegram_id = $1", userID)
 	var userName, phone string
@@ -1196,9 +1278,9 @@ func (ch *ClientHandler) NotifyAdminCustomBouquet(ctx context.Context, customOrd
 	}
 
 	msg := fmt.Sprintf(
-		"🎨 <b>Новый кастомный букет #%d</b>\n\n"+
-			"👤 <b>%s</b> | %s\n\n"+
-			"📝 <b>Описание:</b>\n%s",
+		"🎨 Новый кастомный букет #%d\n\n"+
+			"👤 %s | %s\n\n"+
+			"📝 Описание:\n%s",
 		customOrderID, userName, phone, description)
 
 	menu := &telebot.ReplyMarkup{}
@@ -1212,8 +1294,24 @@ func (ch *ClientHandler) NotifyAdminCustomBouquet(ctx context.Context, customOrd
 	// Отправляем всем админам
 	for _, adminID := range ch.adminIDs {
 		admin := &telebot.User{ID: adminID}
-		if _, err := ch.bot.Send(admin, msg, &telebot.SendOptions{ParseMode: telebot.ModeHTML}, menu); err != nil {
+
+		// Отправляем текст сообщения
+		if _, err := ch.bot.Send(admin, msg); err != nil {
 			log.Printf("❌ Ошибка отправки уведомления админу %d: %v\n", adminID, err)
+			continue
+		}
+
+		// Если есть фото - отправляем его
+		if photoURL != "" && strings.HasPrefix(photoURL, "http") {
+			photo := &telebot.Photo{File: telebot.FromURL(photoURL)}
+			if _, err := ch.bot.Send(admin, photo); err != nil {
+				log.Printf("⚠️ Ошибка отправки фото админу %d: %v\n", adminID, err)
+			}
+		}
+
+		// Отправляем кнопки действия
+		if _, err := ch.bot.Send(admin, "Выберите действие:", menu); err != nil {
+			log.Printf("❌ Ошибка отправки кнопок админу %d: %v\n", adminID, err)
 		}
 	}
 }

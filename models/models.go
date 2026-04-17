@@ -13,6 +13,7 @@ const (
 	StateAwaitingAddress
 	StateAwaitingReceipt
 	StateAwaitingCustomBouquet
+	StateAwaitingCustomBouquetPhoto
 	StateAdminSetPrice
 	StateAdminSetSupportID
 	StateAdminSetKaspiLink

@@ -119,6 +119,9 @@ func main() {
 			return clientHandler.HandleReceiptInput(c)
 		case StateAwaitingCustomBouquet:
 			return clientHandler.HandleCustomBouquetInput(c)
+		case StateAwaitingCustomBouquetPhoto:
+			// Для загрузки фото нужна обработка в OnPhoto, но если прилетел текст - ошибка
+			return c.Send("❌ Пожалуйста, отправьте фото")
 		case StateAdminSetPrice:
 			if adminHandler.IsAdmin(userID) {
 				return adminHandler.HandleAdminCustomPriceInput(c)
@@ -171,6 +174,10 @@ func main() {
 
 		if state == StateAwaitingReceipt {
 			return clientHandler.HandleReceiptInput(c)
+		}
+
+		if state == StateAwaitingCustomBouquetPhoto {
+			return clientHandler.HandleCustomBouquetPhotoInput(c)
 		}
 
 		if state == StateAdminAddBouquetPhoto && adminHandler.IsAdmin(userID) {
@@ -249,6 +256,19 @@ func main() {
 			log.Printf("🏠 [МАРШРУТ] -> ГЛАВНОЕ МЕНЮ\n")
 			log.Printf("   Вызываю: clientHandler.HandleStart()\n")
 			return clientHandler.HandleStart(c)
+		}
+
+		// ===== КАСТОМНЫЙ БУКЕТ - ЗАГРУЗКА ФОТО =====
+		if strings.HasPrefix(data, "custom_add_photo_") {
+			log.Printf("📸 [МАРШРУТ] -> ДОБАВИТЬ ФОТО К БУКЕТУ\n")
+			log.Printf("   Вызываю: clientHandler.HandleCustomBouquetPhotoYes()\n")
+			return clientHandler.HandleCustomBouquetPhotoYes(c)
+		}
+
+		if strings.HasPrefix(data, "custom_no_photo_") {
+			log.Printf("⏭️ [МАРШРУТ] -> БЕЗ ФОТО\n")
+			log.Printf("   Вызываю: clientHandler.HandleCustomBouquetPhotoNo()\n")
+			return clientHandler.HandleCustomBouquetPhotoNo(c)
 		}
 
 		// ===== ПАГИНАЦИЯ КАТАЛОГА =====
@@ -566,6 +586,7 @@ const (
 	StateAwaitingAddress
 	StateAwaitingReceipt
 	StateAwaitingCustomBouquet
+	StateAwaitingCustomBouquetPhoto
 	StateAdminSetPrice
 	StateAdminSetSupportID
 	StateAdminSetKaspiLink

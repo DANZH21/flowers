@@ -100,14 +100,14 @@ func (ah *AdminHandler) HandleAdminMenu(c telebot.Context) error {
 
 	// Текст панели
 	text := fmt.Sprintf(
-		"<b>🌸 АДМИН ПАНЕЛЬ 🌸</b>\n\n"+
-			"<b>Магазин:</b> %s\n"+
-			"<b>Адрес:</b> %s\n\n"+
-			"<b>📊 СТАТИСТИКА:</b>\n"+
-			"🔴 Активные заказы: <b>%d</b>\n"+
-			"🌹 Букетов в каталоге: <b>%d</b>\n"+
-			"👥 Зарегистрировано пользователей: <b>%d</b>\n\n"+
-			"<b>⚡ БЫСТРЫЕ ДЕЙСТВИЯ:</b>\n",
+		"🌸 АДМИН ПАНЕЛЬ 🌸\n\n"+
+			"Магазин: %s\n"+
+			"Адрес: %s\n\n"+
+			"📊 СТАТИСТИКА:\n"+
+			"🔴 Активные заказы: %d\n"+
+			"🌹 Букетов в каталоге: %d\n"+
+			"👥 Зарегистрировано пользователей: %d\n\n"+
+			"⚡ БЫСТРЫЕ ДЕЙСТВИЯ:\n",
 		shopName, address, pendingCount, bouquetCount, usersCount)
 
 	menu := &telebot.ReplyMarkup{}
@@ -172,7 +172,7 @@ func (ah *AdminHandler) HandleAdminOrders(c telebot.Context) error {
 		)
 	}
 
-	return c.Edit("📦 <b>Активные заказы:</b>", menu)
+	return c.Edit("📦 Активные заказы:", menu)
 }
 
 // HandleAdminOrderDetail показывает детали заказа
@@ -198,20 +198,21 @@ func (ah *AdminHandler) HandleAdminOrderDetail(c telebot.Context, orderID int) e
 	}
 
 	msg := fmt.Sprintf(
-		"📦 <b>Заказ #%d</b>\n\n"+
-			"👤 <b>%s</b> | %s\n"+
-			"🌸 <b>%s</b>\n"+
+		"📦 Заказ #%d\n\n"+
+			"👤 %s | %s\n"+
+
+			"🌸 %s\n"+
 			"📦 %s\n"+
 			"💳 %s\n"+
-			"💰 <b>Сумма:</b> %g тг\n"+
-			"📊 <b>Статус:</b> %s",
+			"💰 Сумма: %g тг\n"+
+			"📊 Статус: %s",
 		orderNumber, customerName, customerPhone, bouquetName,
 		map[string]string{models.DeliveryTypeDelivery: "🚚 Доставка", models.DeliveryTypePickup: "🏪 Самовывоз"}[deliveryType],
 		map[string]string{models.PaymentTypeKaspi: "💳 Kaspi Pay", models.PaymentTypeCash: "💵 Наличные"}[paymentType],
 		amount, status)
 
 	if deliveryType == models.DeliveryTypeDelivery {
-		msg += fmt.Sprintf("\n📍 <b>Адрес:</b> %s", deliveryAddress)
+		msg += fmt.Sprintf("\n📍 Адрес: %s", deliveryAddress)
 	}
 
 	menu := &telebot.ReplyMarkup{}
@@ -633,7 +634,7 @@ func (ah *AdminHandler) HandleAdminCatalog(c telebot.Context) error {
 		),
 	)
 
-	return c.Edit("🌸 <b>Каталог букетов:</b>", menu)
+	return c.Edit("🌸 Каталог букетов:", menu)
 }
 
 // HandleAdminBouquetDetail показывает детали букета
@@ -655,11 +656,11 @@ func (ah *AdminHandler) HandleAdminBouquetDetail(c telebot.Context, bouquetID in
 	}
 
 	msg := fmt.Sprintf(
-		"🌸 <b>%s</b>\n\n"+
+		"🌸 %s\n\n"+
 			"📝 %s\n"+
-			"💰 <b>Цена:</b> %g тг\n"+
-			"📦 <b>Кол-во:</b> %d шт\n"+
-			"📊 <b>Статус:</b> %s",
+			"💰 Цена: %g тг\n"+
+			"📦 Кол-во: %d шт\n"+
+			"📊 Статус: %s",
 		name, description, price, quantity,
 		map[bool]string{true: "✅ Доступен", false: "❌ Скрыт"}[isAvailable])
 
@@ -808,7 +809,7 @@ func (ah *AdminHandler) HandleAdminBouquetPhotoInput(c telebot.Context) error {
 		log.Printf("✅ Добавлен букет #%d\n", bouquetID)
 		ah.stateManager.ResetState(userID)
 
-		msg := fmt.Sprintf("✅ <b>Букет добавлен!</b>\n\n"+
+		msg := fmt.Sprintf("✅ Букет добавлен!\n\n"+
 			"🌸 %s\n"+
 			"💰 %g тг\n"+
 			"📦 %d шт",
@@ -946,8 +947,8 @@ func (ah *AdminHandler) HandleAdminCustomPriceInput(c telebot.Context) error {
 	// Уведомляем пользователя
 	user := &telebot.User{ID: customerUserID}
 	msg := fmt.Sprintf(
-		"🌸 <b>Ваш букет принят!</b>\n\n"+
-			"💰 <b>Стоимость:</b> %g тг\n\n"+
+		"🌸 Ваш букет принят!\n\n"+
+			"💰 Стоимость: %g тг\n\n"+
 			"Для оплаты нажмите на кнопку ниже.",
 		price)
 
@@ -1033,12 +1034,12 @@ func (ah *AdminHandler) HandleAdminSettings(c telebot.Context) error {
 	}
 
 	msg := fmt.Sprintf(
-		"⚙️ <b>Текущие настройки:</b>\n\n"+
-			"🏪 <b>Название:</b> %s\n"+
-			"📍 <b>Адрес:</b> %s\n"+
-			"👤 <b>ID поддержки:</b> %s\n"+
-			"💳 <b>Kaspi Link:</b> %s\n"+
-			"📢 <b>Канал:</b> %s",
+		"⚙️ Текущие настройки:\n\n"+
+			"🏪 Название: %s\n"+
+			"📍 Адрес: %s\n"+
+			"👤 ID поддержки: %s\n"+
+			"💳 Kaspi Link: %s\n"+
+			"📢 Канал: %s",
 		shopName, address, supportIDStr, kaspiLink, aboutChannelLink)
 
 	menu := &telebot.ReplyMarkup{}
@@ -1244,12 +1245,12 @@ func (ah *AdminHandler) HandleAdminStats(c telebot.Context) error {
 	sumRow.Scan(&totalSum)
 
 	msg := fmt.Sprintf(
-		"📊 <b>Статистика:</b>\n\n"+
-			"📦 <b>Всего заказов:</b> %d\n"+
-			"✅ <b>Выполнено:</b> %d\n"+
-			"❌ <b>Отменено:</b> %d\n"+
-			"🟡 <b>Активных:</b> %d\n"+
-			"💰 <b>Выручка:</b> %g тг",
+		"📊 Статистика:\n\n"+
+			"📦 Всего заказов: %d\n"+
+			"✅ Выполнено: %d\n"+
+			"❌ Отменено: %d\n"+
+			"🟡 Активных: %d\n"+
+			"💰 Выручка: %g тг",
 		total, completed, cancelled, active, totalSum)
 
 	return c.Edit(msg, &telebot.SendOptions{ParseMode: telebot.ModeHTML})

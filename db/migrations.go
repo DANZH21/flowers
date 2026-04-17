@@ -75,6 +75,7 @@ func (d *Database) RunMigrations(ctx context.Context, cfg *config.Config) error 
 			id SERIAL PRIMARY KEY,
 			user_id BIGINT NOT NULL REFERENCES users(telegram_id),
 			description TEXT NOT NULL,
+			photo_url TEXT,
 			admin_price NUMERIC(10,2),
 			status TEXT DEFAULT 'pending',
 			created_at TIMESTAMPTZ DEFAULT NOW()
@@ -93,6 +94,9 @@ func (d *Database) RunMigrations(ctx context.Context, cfg *config.Config) error 
 
 		// Добавляем колонку receipt_type если её нет
 		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_type TEXT DEFAULT 'text'`,
+
+		// Добавляем колонку photo_url для кастомных букетов если её нет
+		`ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS photo_url TEXT`,
 	}
 
 	for _, migration := range migrations {

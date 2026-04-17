@@ -64,6 +64,7 @@ func (d *Database) RunMigrations(ctx context.Context, cfg *config.Config) error 
 			delivery_address TEXT,
 			status TEXT NOT NULL DEFAULT 'pending',
 			receipt_url TEXT,
+			receipt_type TEXT DEFAULT 'text',
 			receipt_deadline TIMESTAMPTZ,
 			created_at TIMESTAMPTZ DEFAULT NOW(),
 			updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -89,6 +90,9 @@ func (d *Database) RunMigrations(ctx context.Context, cfg *config.Config) error 
 
 		// Миграция photo_url -> photo_urls
 		`ALTER TABLE bouquets ADD COLUMN IF NOT EXISTS photo_urls TEXT[] DEFAULT '{}'`,
+
+		// Добавляем колонку receipt_type если её нет
+		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_type TEXT DEFAULT 'text'`,
 	}
 
 	for _, migration := range migrations {

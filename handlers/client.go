@@ -233,10 +233,10 @@ func (ch *ClientHandler) HandleCatalogPage(c telebot.Context, page int) error {
 
 	// Отправляем новое сообщение с каталогом
 	msg, err := ch.bot.Send(c.Sender(), text, menu)
-if err == nil {
-ch.stateManager.AddMessageToDelete(userID, msg.ID)
-}
-if err != nil {
+	if err == nil {
+		ch.stateManager.AddMessageToDelete(userID, msg.ID)
+	}
+	if err != nil {
 		log.Printf("   ❌ [ОШИБКА] Ошибка отправки каталога: %v\n", err)
 		return err
 	}
@@ -884,22 +884,26 @@ func (ch *ClientHandler) HandleReceiptInput(c telebot.Context) error {
 		return c.Edit("❌ Активный заказ не найден")
 	}
 
-	// Сохраняем URL чека
+	// Сохраняем URL чека и его тип
 	receiptURL := ""
+	receiptType := "text"
 	if c.Message().Photo != nil {
 		// Если отправлено фото - берем его ID
 		receiptURL = c.Message().Photo.FileID
+		receiptType = "photo"
 	} else if c.Message().Document != nil {
 		// Если отправлен документ - берем его ID
 		receiptURL = c.Message().Document.FileID
+		receiptType = "document"
 	} else {
 		// Если текст - может быть ссылка
 		receiptURL = c.Message().Text
+		receiptType = "text"
 	}
 
 	_, err := ch.db.Exec(ctx,
-		`UPDATE orders SET receipt_url = $1, updated_at = NOW() WHERE id = $2`,
-		receiptURL, orderID)
+		`UPDATE orders SET receipt_url = $1, receipt_type = $2, updated_at = NOW() WHERE id = $3`,
+		receiptURL, receiptType, orderID)
 	if err != nil {
 		log.Printf("❌ Ошибка сохранения чека: %v\n", err)
 		return c.Edit("❌ Ошибка при сохранении чека")
@@ -928,7 +932,7 @@ func (ch *ClientHandler) HandleReceiptInput(c telebot.Context) error {
 	ch.stateManager.ResetState(userID)
 
 	// Уведомляем админа о полученном чеке
-	ch.NotifyAdminReceiptReceived(ctx, orderID, orderNumber, userID, receiptURL)
+	ch.NotifyAdminReceiptReceived(ctx, orderID, orderNumber, userID, receiptURL, receiptType)
 
 	return c.Edit("✅ Чек отправлен на проверку! Скоро подтвердим. ⏳")
 }
@@ -1111,7 +1115,7 @@ func (ch *ClientHandler) NotifyAdminNewOrder(ctx context.Context, orderID int, o
 }
 
 // NotifyAdminReceiptReceived уведомляет админа о полученном чеке
-func (ch *ClientHandler) NotifyAdminReceiptReceived(ctx context.Context, orderID int, orderNumber int, userID int64, receiptURL string) {
+func (ch *ClientHandler) NotifyAdminReceiptReceived(ctx context.Context, orderID int, orderNumber int, userID int64, receiptURL string, receiptType string) {
 	// Получаем информацию о пользователе
 	row := ch.db.QueryRow(ctx, "SELECT full_name, phone FROM users WHERE telegram_id = $1", userID)
 	var userName, phone string
@@ -1136,12 +1140,27 @@ func (ch *ClientHandler) NotifyAdminReceiptReceived(ctx context.Context, orderID
 			continue
 		}
 
-		// Отправляем чек если это фото/документ
+		// Отправляем чек в зависимости от типа
 		if receiptURL != "" && len(receiptURL) > 10 {
-			// Пытаемся отправить как фото
-			photo := &telebot.Photo{File: telebot.File{FileID: receiptURL}}
-			if _, err := ch.bot.Send(admin, photo); err != nil {
-				// Если не получилось - просто сообщение с URL
+			switch receiptType {
+			case "photo":
+				// Отправляем как фото
+				photo := &telebot.Photo{File: telebot.File{FileID: receiptURL}}
+				if _, err := ch.bot.Send(admin, photo); err != nil {
+					log.Printf("❌ Ошибка отправки фото админу %d: %v\n", adminID, err)
+					// Если не получилось - просто сообщение с URL
+					_, _ = ch.bot.Send(admin, fmt.Sprintf("📎 Чек: %s", receiptURL))
+				}
+			case "document":
+				// Отправляем как документ
+				doc := &telebot.Document{File: telebot.File{FileID: receiptURL}}
+				if _, err := ch.bot.Send(admin, doc); err != nil {
+					log.Printf("❌ Ошибка отправки документа админу %d: %v\n", adminID, err)
+					// Если не получилось - просто сообщение с URL
+					_, _ = ch.bot.Send(admin, fmt.Sprintf("📎 Чек: %s", receiptURL))
+				}
+			case "text":
+				// Отправляем как ссылку
 				_, _ = ch.bot.Send(admin, fmt.Sprintf("📎 Чек: %s", receiptURL))
 			}
 		}

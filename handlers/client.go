@@ -1126,8 +1126,14 @@ func (ch *ClientHandler) HandleAbout(c telebot.Context) error {
 
 	row := ch.db.QueryRow(ctx, "SELECT about_channel_link FROM shop_settings LIMIT 1")
 	var link string
-	if err := row.Scan(&link); err != nil {
+	if err := row.Scan(&link); err != nil || link == "" {
 		return c.Edit("ℹ️ Информация о магазине и новые букеты можно найти в нашем канале")
+	}
+
+	// Валидируем и форматируем ссылку
+	if !strings.HasPrefix(link, "http://") && !strings.HasPrefix(link, "https://") && !strings.HasPrefix(link, "tg://") {
+		// Если это просто имя канала, добавляем префикс t.me
+		link = "https://t.me/" + strings.TrimPrefix(link, "@")
 	}
 
 	menu := &telebot.ReplyMarkup{}

@@ -308,7 +308,7 @@ func main() {
 
 // Helper functions
 func sscanf(str string, format string, args ...interface{}) (int, error) {
-	return 0, nil // Placeholder - нужен реальный парсер
+	return fmt.Sscanf(str, format, args...)
 }
 
 func parseDateTimeCallback(data string) []string {

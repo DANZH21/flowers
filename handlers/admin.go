@@ -56,7 +56,7 @@ func (ah *AdminHandler) HandleAdminMenu(c telebot.Context) error {
 	userID := c.Sender().ID
 
 	if !ah.IsAdmin(userID) {
-		return c.Edit("❌ Доступ запрещён. Вы не администратор.")
+		return c.Send("❌ Доступ запрещён. Вы не администратор.")
 	}
 
 	log.Printf("📊 [АДМИН] Админ %d открыл панель\n", userID)

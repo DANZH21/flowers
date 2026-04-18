@@ -118,5 +118,37 @@ func (d *Database) RunMigrations(ctx context.Context, cfg *config.Config) error 
 		log.Println("✅ salon_settings инициализированы")
 	}
 
+	// Инициализируем услуги по умолчанию если их нет
+	serviceRow := d.pool.QueryRow(ctx, "SELECT COUNT(*) FROM services")
+	var serviceCount int
+	if err := serviceRow.Scan(&serviceCount); err != nil {
+		return err
+	}
+
+	if serviceCount == 0 {
+		defaultServices := []struct {
+			name     string
+			price    float64
+			duration int
+		}{
+			{"Маникюр", 8000, 60},
+			{"Педикюр", 10000, 90},
+			{"Покрытие ногтей", 5000, 30},
+			{"Наращивание ногтей", 12000, 120},
+			{"Дизайн ногтей", 3000, 20},
+			{"Шеллак", 6000, 45},
+		}
+
+		for _, svc := range defaultServices {
+			_, err := d.pool.Exec(ctx,
+				`INSERT INTO services (name, price, duration_min, is_available) VALUES ($1, $2, $3, TRUE)`,
+				svc.name, svc.price, svc.duration)
+			if err != nil {
+				log.Printf("⚠️ Ошибка добавления услуги %s: %v\n", svc.name, err)
+			}
+		}
+		log.Println("✅ Дефолтные услуги добавлены (6 шт)")
+	}
+
 	return nil
 }

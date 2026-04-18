@@ -133,6 +133,176 @@ func main() {
 		return clientHandler.HandleMyAppointments(c)
 	})
 
+	// ========== АДМИН КНОПКИ ==========
+
+	// Админ - записи
+	bot.Handle(&telebot.Btn{Unique: "admin_appointments"}, func(c telebot.Context) error {
+		userID := c.Sender().ID
+		log.Printf("📅 [ADMIN BUTTON] Пользователь %d нажал 'Записи'\n", userID)
+		if !adminHandler.IsAdmin(userID) {
+			log.Printf("❌ Пользователь %d не администратор!\n", userID)
+			c.Respond()
+			return c.Send("❌ Доступ запрещён")
+		}
+		c.Respond()
+		return adminHandler.HandleAdminAppointments(c)
+	})
+
+	// Админ - услуги
+	bot.Handle(&telebot.Btn{Unique: "admin_services"}, func(c telebot.Context) error {
+		userID := c.Sender().ID
+		log.Printf("💅 [ADMIN BUTTON] Пользователь %d нажал 'Услуги'\n", userID)
+		if !adminHandler.IsAdmin(userID) {
+			log.Printf("❌ Пользователь %d не администратор!\n", userID)
+			c.Respond()
+			return c.Send("❌ Доступ запрещён")
+		}
+		c.Respond()
+		return adminHandler.HandleAdminServices(c)
+	})
+
+	// Админ - настройки
+	bot.Handle(&telebot.Btn{Unique: "admin_settings"}, func(c telebot.Context) error {
+		userID := c.Sender().ID
+		log.Printf("⚙️ [ADMIN BUTTON] Пользователь %d нажал 'Настройки'\n", userID)
+		if !adminHandler.IsAdmin(userID) {
+			log.Printf("❌ Пользователь %d не администратор!\n", userID)
+			c.Respond()
+			return c.Send("❌ Доступ запрещён")
+		}
+		c.Respond()
+		return adminHandler.HandleAdminSettings(c)
+	})
+
+	// Адд сервис
+	bot.Handle(&telebot.Btn{Unique: "admin_add_service"}, func(c telebot.Context) error {
+		userID := c.Sender().ID
+		log.Printf("➕ [ADMIN BUTTON] Пользователь %d нажал 'Добавить услугу'\n", userID)
+		if !adminHandler.IsAdmin(userID) {
+			c.Respond()
+			return c.Send("❌ Доступ запрещён")
+		}
+		c.Respond()
+		return adminHandler.HandleAdminAddService(c)
+	})
+
+	// Админ - установка названия
+	bot.Handle(&telebot.Btn{Unique: "admin_set_name"}, func(c telebot.Context) error {
+		userID := c.Sender().ID
+		log.Printf("📝 [ADMIN BUTTON] Пользователь %d нажал 'Название'\n", userID)
+		if !adminHandler.IsAdmin(userID) {
+			c.Respond()
+			return c.Send("❌ Доступ запрещён")
+		}
+		c.Respond()
+		return adminHandler.HandleAdminSetName(c)
+	})
+
+	// Админ - установка адреса
+	bot.Handle(&telebot.Btn{Unique: "admin_set_address"}, func(c telebot.Context) error {
+		userID := c.Sender().ID
+		log.Printf("📍 [ADMIN BUTTON] Пользователь %d нажал 'Адрес'\n", userID)
+		if !adminHandler.IsAdmin(userID) {
+			c.Respond()
+			return c.Send("❌ Доступ запрещён")
+		}
+		c.Respond()
+		return adminHandler.HandleAdminSetAddress(c)
+	})
+
+	// Админ - время открытия
+	bot.Handle(&telebot.Btn{Unique: "admin_set_open"}, func(c telebot.Context) error {
+		userID := c.Sender().ID
+		log.Printf("🕐 [ADMIN BUTTON] Пользователь %d нажал 'Время открытия'\n", userID)
+		if !adminHandler.IsAdmin(userID) {
+			c.Respond()
+			return c.Send("❌ Доступ запрещён")
+		}
+		c.Respond()
+		return adminHandler.HandleAdminSetScheduleOpen(c)
+	})
+
+	// Админ - время закрытия
+	bot.Handle(&telebot.Btn{Unique: "admin_set_close"}, func(c telebot.Context) error {
+		userID := c.Sender().ID
+		log.Printf("🕐 [ADMIN BUTTON] Пользователь %d нажал 'Время закрытия'\n", userID)
+		if !adminHandler.IsAdmin(userID) {
+			c.Respond()
+			return c.Send("❌ Доступ запрещён")
+		}
+		c.Respond()
+		return adminHandler.HandleAdminSetScheduleClose(c)
+	})
+
+	// Админ - напоминание
+	bot.Handle(&telebot.Btn{Unique: "admin_set_reminder"}, func(c telebot.Context) error {
+		userID := c.Sender().ID
+		log.Printf("🔔 [ADMIN BUTTON] Пользователь %d нажал 'Напоминание'\n", userID)
+		if !adminHandler.IsAdmin(userID) {
+			c.Respond()
+			return c.Send("❌ Доступ запрещён")
+		}
+		c.Respond()
+		return adminHandler.HandleAdminSetReminderHours(c)
+	})
+
+	// Админ - предоплата
+	bot.Handle(&telebot.Btn{Unique: "admin_set_prepay"}, func(c telebot.Context) error {
+		userID := c.Sender().ID
+		log.Printf("💳 [ADMIN BUTTON] Пользователь %d нажал 'Предоплата'\n", userID)
+		if !adminHandler.IsAdmin(userID) {
+			c.Respond()
+			return c.Send("❌ Доступ запрешён")
+		}
+		c.Respond()
+		return adminHandler.HandleAdminSetPrepayPercent(c)
+	})
+
+	// Админ - поддержка ID
+	bot.Handle(&telebot.Btn{Unique: "admin_set_support"}, func(c telebot.Context) error {
+		userID := c.Sender().ID
+		log.Printf("💬 [ADMIN BUTTON] Пользователь %d нажал 'Поддержка ID'\n", userID)
+		if !adminHandler.IsAdmin(userID) {
+			c.Respond()
+			return c.Send("❌ Доступ запрещён")
+		}
+		c.Respond()
+		return adminHandler.HandleAdminSetSupportID(c)
+	})
+
+	// Админ - статистика (пока заглушка)
+	bot.Handle(&telebot.Btn{Unique: "admin_stats"}, func(c telebot.Context) error {
+		userID := c.Sender().ID
+		log.Printf("📊 [ADMIN BUTTON] Пользователь %d нажал 'Статистика'\n", userID)
+		if !adminHandler.IsAdmin(userID) {
+			c.Respond()
+			return c.Send("❌ Доступ запрещён")
+		}
+		c.Respond()
+		return c.Send("📊 Статистика (скоро доступна)")
+	})
+
+	// Главное меню
+	bot.Handle(&telebot.Btn{Unique: "main_menu"}, func(c telebot.Context) error {
+		log.Printf("🏠 [BUTTON] Пользователь %d нажал 'Главное меню'\n", c.Sender().ID)
+		c.Respond()
+		return clientHandler.HandleStart(c)
+	})
+
+	// О салоне
+	bot.Handle(&telebot.Btn{Unique: "about"}, func(c telebot.Context) error {
+		log.Printf("ℹ️ [BUTTON] Пользователь %d нажал 'О салоне'\n", c.Sender().ID)
+		c.Respond()
+		return c.Send("ℹ️ *BEAUTY SALON*\n\nМы предоставляем профессиональные услуги маникюра и педикюра 💅\n\n📍 Адрес: Алматы\n⏰ Режим работы: 10:00 - 20:00\n📞 Контакт: +7 700 000 00 00")
+	})
+
+	// Поддержка
+	bot.Handle(&telebot.Btn{Unique: "support"}, func(c telebot.Context) error {
+		log.Printf("💬 [BUTTON] Пользователь %d нажал 'Поддержка'\n", c.Sender().ID)
+		c.Respond()
+		return c.Send("📞 *Служба поддержки*\n\nЕсли у вас есть вопросы, пожалуйста свяжитесь с нами:\n\n📧 Email: support@salon.kz\n💬 Telegram: @salon_support\n☎️ WhatsApp: +7 700 000 00 00")
+	})
+
 	// Выбор услуги
 	bot.Handle(telebot.OnCallback, func(c telebot.Context) error {
 		data := c.Callback().Data
@@ -181,140 +351,6 @@ func main() {
 			return clientHandler.HandlePaymentCash(c, userID)
 		}
 
-		// Админ панель
-		if data == "admin_appointments" {
-			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminAppointments\n", userID)
-			if !adminHandler.IsAdmin(userID) {
-				log.Printf("❌ [CALLBACK] Пользователь %d не администратор!\n", userID)
-				c.Respond()
-				return c.Send("❌ Доступ запрещён")
-			}
-			c.Respond()
-			err := adminHandler.HandleAdminAppointments(c)
-			if err != nil {
-				log.Printf("❌ [ERROR] HandleAdminAppointments ошибка: %v\n", err)
-			}
-			return err
-		}
-
-		if data == "admin_services" {
-			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminServices\n", userID)
-			if !adminHandler.IsAdmin(userID) {
-				log.Printf("❌ [CALLBACK] Пользователь %d не администратор!\n", userID)
-				c.Respond()
-				return c.Send("❌ Доступ запрещён")
-			}
-			c.Respond()
-			err := adminHandler.HandleAdminServices(c)
-			if err != nil {
-				log.Printf("❌ [ERROR] HandleAdminServices ошибка: %v\n", err)
-			}
-			return err
-		}
-
-		if data == "admin_settings" {
-			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminSettings\n", userID)
-			if !adminHandler.IsAdmin(userID) {
-				log.Printf("❌ [CALLBACK] Пользователь %d не администратор!\n", userID)
-				c.Respond()
-				return c.Send("❌ Доступ запрещён")
-			}
-			c.Respond()
-			err := adminHandler.HandleAdminSettings(c)
-			if err != nil {
-				log.Printf("❌ [ERROR] HandleAdminSettings ошибка: %v\n", err)
-			}
-			return err
-		}
-
-		if data == "admin_add_service" {
-			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminAddService\n", userID)
-			if !adminHandler.IsAdmin(userID) {
-				log.Printf("❌ [CALLBACK] Пользователь %d не администратор!\n", userID)
-				c.Respond()
-				return c.Send("❌ Доступ запрещён")
-			}
-			c.Respond()
-			return adminHandler.HandleAdminAddService(c)
-		}
-
-		if data == "admin_set_name" {
-			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminSetName\n", userID)
-			if !adminHandler.IsAdmin(userID) {
-				log.Printf("❌ [CALLBACK] Пользователь %d не администратор!\n", userID)
-				c.Respond()
-				return c.Send("❌ Доступ запрещён")
-			}
-			c.Respond()
-			return adminHandler.HandleAdminSetName(c)
-		}
-
-		if data == "admin_set_address" {
-			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminSetAddress\n", userID)
-			if !adminHandler.IsAdmin(userID) {
-				log.Printf("❌ [CALLBACK] Пользователь %d не администратор!\n", userID)
-				c.Respond()
-				return c.Send("❌ Доступ запрещён")
-			}
-			c.Respond()
-			return adminHandler.HandleAdminSetAddress(c)
-		}
-
-		if data == "admin_set_open" {
-			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminSetScheduleOpen\n", userID)
-			if !adminHandler.IsAdmin(userID) {
-				log.Printf("❌ [CALLBACK] Пользователь %d не администратор!\n", userID)
-				c.Respond()
-				return c.Send("❌ Доступ запрещён")
-			}
-			c.Respond()
-			return adminHandler.HandleAdminSetScheduleOpen(c)
-		}
-
-		if data == "admin_set_close" {
-			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminSetScheduleClose\n", userID)
-			if !adminHandler.IsAdmin(userID) {
-				log.Printf("❌ [CALLBACK] Пользователь %d не администратор!\n", userID)
-				c.Respond()
-				return c.Send("❌ Доступ запрещён")
-			}
-			c.Respond()
-			return adminHandler.HandleAdminSetScheduleClose(c)
-		}
-
-		if data == "admin_set_reminder" {
-			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminSetReminderHours\n", userID)
-			if !adminHandler.IsAdmin(userID) {
-				log.Printf("❌ [CALLBACK] Пользователь %d не администратор!\n", userID)
-				c.Respond()
-				return c.Send("❌ Доступ запрещён")
-			}
-			c.Respond()
-			return adminHandler.HandleAdminSetReminderHours(c)
-		}
-
-		if data == "admin_set_prepay" {
-			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminSetPrepayPercent\n", userID)
-			if !adminHandler.IsAdmin(userID) {
-				log.Printf("❌ [CALLBACK] Пользователь %d не администратор!\n", userID)
-				c.Respond()
-				return c.Send("❌ Доступ запрещён")
-			}
-			c.Respond()
-			return adminHandler.HandleAdminSetPrepayPercent(c)
-		}
-
-		if data == "admin_set_support" {
-			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminSetSupportID\n", userID)
-			if !adminHandler.IsAdmin(userID) {
-				log.Printf("❌ [CALLBACK] Пользователь %d не администратор!\n", userID)
-				c.Respond()
-				return c.Send("❌ Доступ запрещён")
-			}
-			c.Respond()
-			return adminHandler.HandleAdminSetSupportID(c)
-		}
-
 		// Подтверждение чека администратором
 		if len(data) > 15 && data[:15] == "confirm_receipt_" {
 			var appointmentID int
@@ -335,19 +371,6 @@ func main() {
 				c.Respond()
 				return adminHandler.HandleRejectReceipt(c, appointmentID)
 			}
-		}
-
-		// Кнопки главного меню
-		if data == "about" {
-			log.Printf("📋 [CALLBACK] Пользователь %d запросил информацию о салоне\n", userID)
-			c.Respond()
-			return c.Send("ℹ️ *BEAUTY SALON*\n\nМы предоставляем профессиональные услуги маникюра и педикюра 💅\n\n📍 Адрес: Алматы\n⏰ Режим работы: 10:00 - 20:00\n📞 Контакт: +7 700 000 00 00")
-		}
-
-		if data == "support" {
-			log.Printf("💬 [CALLBACK] Пользователь %d запросил поддержку\n", userID)
-			c.Respond()
-			return c.Send("📞 *Служба поддержки*\n\nЕсли у вас есть вопросы, пожалуйста свяжитесь с нами:\n\n📧 Email: support@salon.kz\n💬 Telegram: @salon_support\n☎️ WhatsApp: +7 700 000 00 00")
 		}
 
 		log.Printf("⚠️ [CALLBACK] Неизвестная кнопка от пользователя %d: %s\n", userID, data)

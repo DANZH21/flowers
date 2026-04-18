@@ -42,7 +42,7 @@ func (sm *StateManager) GetUserSession(userID int64) *models.UserSession {
 		session = &models.UserSession{
 			State:            models.StateNone,
 			AppointmentDraft: models.AppointmentDraft{},
-			TempData:         "",
+			TempData:         make(map[string]interface{}),
 			MessageIDs:       []int{},
 			FullName:         "",
 			Phone:            "",
@@ -94,45 +94,6 @@ func (sm *StateManager) SetState(userID int64, state models.State) {
 	session.State = state
 }
 
-// GetTempData получает временные данные
-func (sm *StateManager) GetTempData(userID int64) string {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-
-	session, exists := sm.sessions[userID]
-	if !exists {
-		return ""
-	}
-	return session.TempData
-}
-
-// AppendTempData securely appends to temporary data
-func (sm *StateManager) AppendTempData(userID int64, data string) string {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-
-	session, exists := sm.sessions[userID]
-	if !exists {
-		session = &models.UserSession{}
-		sm.sessions[userID] = session
-	}
-	session.TempData = session.TempData + data
-	return session.TempData
-}
-
-// SetTempData устанавливает временные данные
-func (sm *StateManager) SetTempData(userID int64, data string) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-
-	session, exists := sm.sessions[userID]
-	if !exists {
-		session = &models.UserSession{}
-		sm.sessions[userID] = session
-	}
-	session.TempData = data
-}
-
 // ClearSession очищает всю сессию пользователя
 func (sm *StateManager) ClearSession(userID int64) {
 	sm.mu.Lock()
@@ -152,7 +113,7 @@ func (sm *StateManager) ResetState(userID int64) {
 	}
 	session.State = models.StateNone
 	session.AppointmentDraft = models.AppointmentDraft{}
-	session.TempData = ""
+	session.TempData = make(map[string]interface{})
 }
 
 // AddMessageToDelete добавляет ID сообщения в список на удаление

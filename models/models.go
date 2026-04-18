@@ -20,6 +20,9 @@ const (
 	StateAdminAddServiceDesc
 	StateAdminAddServicePrice
 	StateAdminAddServiceDuration
+	StateAdminEditServiceName
+	StateAdminEditServicePrice
+	StateAdminEditServiceDuration
 	// Админ - настройки
 	StateAdminSetScheduleOpen
 	StateAdminSetScheduleClose
@@ -47,7 +50,7 @@ type AppointmentDraft struct {
 type UserSession struct {
 	State            State
 	AppointmentDraft AppointmentDraft
-	TempData         string
+	TempData         map[string]interface{}
 	MessageIDs       []int // ID сообщений для удаления
 	FullName         string
 	Phone            string

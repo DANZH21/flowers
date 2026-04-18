@@ -568,7 +568,7 @@ func (ch *ClientHandler) HandleReceiptUpload(c telebot.Context) error {
 
 	// Сохраняем URL чека в сессию
 	session := ch.stateManager.GetUserSession(userID)
-	session.TempData = receiptURL
+	session.TempData["receiptURL"] = receiptURL
 	ch.stateManager.SetUserSession(userID, session)
 
 	// Создаем запись
@@ -604,8 +604,8 @@ func (ch *ClientHandler) createAppointment(c telebot.Context, userID int64) erro
 
 	// Определяем URL чека (если есть)
 	receiptURL := ""
-	if session.TempData != "" {
-		receiptURL = session.TempData
+	if url, ok := session.TempData["receiptURL"].(string); ok {
+		receiptURL = url
 	}
 
 	// Создаем запись

@@ -682,3 +682,151 @@ func (ah *AdminHandler) HandleRejectReceipt(c telebot.Context, appointmentID int
 
 	return c.Send(fmt.Sprintf("❌ Чек #%d отклонен", appointmentNum))
 }
+
+// ========== РЕДАКТИРОВАНИЕ УСЛУГИ ==========
+
+// HandleAdminEditService показывает форму редактирования услуги
+func (ah *AdminHandler) HandleAdminEditService(c telebot.Context, serviceID int) error {
+	ctx := context.Background()
+
+	log.Printf("✏️ [ADMIN] Редактирование услуги %d\n", serviceID)
+
+	// Получаем данные услуги
+	row := ah.db.QueryRow(ctx,
+		`SELECT id, name, price, duration_min, is_available FROM services WHERE id = $1`, serviceID)
+
+	var id, duration int
+	var name string
+	var price float64
+	var isAvailable bool
+
+	if err := row.Scan(&id, &name, &price, &duration, &isAvailable); err != nil {
+		log.Printf("❌ Ошибка получения услуги: %v\n", err)
+		return c.Send("❌ Услуга не найдена")
+	}
+
+	availability := "✅ Доступна"
+	if !isAvailable {
+		availability = "❌ Недоступна"
+	}
+
+	text := fmt.Sprintf(
+		"✏️ РЕДАКТИРОВАНИЕ УСЛУГИ\n\n"+
+			"📝 Название: %s\n"+
+			"💰 Цена: %g тг\n"+
+			"⏱️ Длительность: %d мин\n"+
+			"📊 Статус: %s\n",
+		name, price, duration, availability)
+
+	menu := &telebot.ReplyMarkup{}
+	menu.Inline(
+		menu.Row(
+			menu.Data("📝 Название", fmt.Sprintf("edit_service_name_%d", id)),
+			menu.Data("💰 Цена", fmt.Sprintf("edit_service_price_%d", id)),
+		),
+		menu.Row(
+			menu.Data("⏱️ Длительность", fmt.Sprintf("edit_service_duration_%d", id)),
+			menu.Data("📊 Статус", fmt.Sprintf("edit_service_toggle_%d", id)),
+		),
+		menu.Row(
+			menu.Data("🗑️ Удалить", fmt.Sprintf("edit_service_delete_%d", id)),
+			menu.Data("🏠 Меню", "admin_services"),
+		),
+	)
+
+	return c.Send(text, menu)
+}
+
+// ========== ДЕТАЛИ ЗАПИСИ ==========
+
+// HandleAdminViewAppointmentDetail показывает детали записи
+func (ah *AdminHandler) HandleAdminViewAppointmentDetail(c telebot.Context, appointmentID int) error {
+	ctx := context.Background()
+
+	log.Printf("📋 [ADMIN] Просмотр деталей записи %d\n", appointmentID)
+
+	// Получаем данные записи
+	row := ah.db.QueryRow(ctx,
+		`SELECT a.id, a.appointment_num, a.customer_name, a.customer_phone, 
+		        a.appointment_time, a.status, a.amount, a.payment_type,
+		        s.name, a.receipt_status, a.receipt_url
+		 FROM appointments a
+		 JOIN services s ON a.service_id = s.id
+		 WHERE a.id = $1`, appointmentID)
+
+	var id, appointmentNum int
+	var customerName, customerPhone, status, paymentType, serviceName, receiptStatus string
+	var appointmentTime time.Time
+	var amount float64
+	var receiptURL *string
+
+	if err := row.Scan(&id, &appointmentNum, &customerName, &customerPhone, &appointmentTime,
+		&status, &amount, &paymentType, &serviceName, &receiptStatus, &receiptURL); err != nil {
+		log.Printf("❌ Ошибка получения записи: %v\n", err)
+		return c.Send("❌ Запись не найдена")
+	}
+
+	statusEmoji := map[string]string{
+		models.AppointmentStatusScheduled: "📅",
+		models.AppointmentStatusConfirmed: "✅",
+		models.AppointmentStatusCompleted: "✔️",
+		models.AppointmentStatusCancelled: "❌",
+		models.AppointmentStatusNoShow:    "⚠️",
+	}[status]
+
+	receiptStatusEmoji := map[string]string{
+		models.ReceiptStatusPending:   "⏳",
+		models.ReceiptStatusConfirmed: "✅",
+		models.ReceiptStatusRejected:  "❌",
+	}[receiptStatus]
+
+	paymentEmoji := map[string]string{
+		models.PaymentTypeKaspi: "💳",
+		models.PaymentTypeCash:  "💵",
+	}[paymentType]
+
+	receiptInfo := ""
+	if receiptURL != nil && *receiptURL != "" {
+		receiptInfo = fmt.Sprintf("\n📸 Чек загружен: %s", receiptStatusEmoji)
+	} else if paymentType == models.PaymentTypeKaspi {
+		receiptInfo = "\n📸 Чек: ожидается"
+	}
+
+	text := fmt.Sprintf(
+		"📋 ЗАПИСЬ #%d\n\n"+
+			"👤 Клиент: %s\n"+
+			"📞 Телефон: %s\n"+
+			"💅 Услуга: %s\n"+
+			"🕐 Время: %s\n"+
+			"💰 Сумма: %g тг\n"+
+			"💳 Оплата: %s %s\n"+
+			"📊 Статус: %s %s%s\n",
+		appointmentNum, customerName, customerPhone, serviceName,
+		appointmentTime.Format("02.01.2006 15:04"),
+		amount, paymentEmoji, paymentType,
+		statusEmoji, status, receiptInfo)
+
+	menu := &telebot.ReplyMarkup{}
+	var rows []telebot.Row
+
+	// Кнопки в зависимости от статуса
+	if status == models.AppointmentStatusScheduled || status == models.AppointmentStatusConfirmed {
+		rows = append(rows, menu.Row(
+			menu.Data("✅ Завершить", fmt.Sprintf("apt_complete_%d", id)),
+		))
+	}
+
+	if status != models.AppointmentStatusCancelled {
+		rows = append(rows, menu.Row(
+			menu.Data("❌ Отменить", fmt.Sprintf("apt_cancel_%d", id)),
+		))
+	}
+
+	rows = append(rows, menu.Row(
+		menu.Data("🏠 Назад", "admin_appointments"),
+	))
+
+	menu.Inline(rows...)
+
+	return c.Send(text, menu)
+}

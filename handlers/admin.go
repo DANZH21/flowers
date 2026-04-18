@@ -116,6 +116,8 @@ func (ah *AdminHandler) HandleAdminMenu(c telebot.Context) error {
 	)
 
 	log.Printf("✅ [ADMIN] Показываю панель настроек\n")
+	log.Printf("DEBUG HandleAdminMenu: text = %q\n", text)
+	log.Printf("DEBUG HandleAdminMenu: text bytes = %v\n", []byte(text))
 	return c.Send(text, menu)
 }
 

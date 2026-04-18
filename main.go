@@ -127,11 +127,11 @@ func main() {
 
 	// Выбор услуги
 	bot.Handle(telebot.OnCallback, func(c telebot.Context) error {
-		// Telebot v3 добавляет невидимый символ \f (ASCII 12) в начало всех callback data
-		// от кнопок, созданных через menu.Data(). Очищаем его.
+		// Очищаем любые невидимые контрольные символы, которые может добавлять Telebot
 		data := c.Callback().Data
-		data = strings.TrimPrefix(data, "\f")
-		data = strings.TrimSpace(data)
+		data = strings.TrimFunc(data, func(r rune) bool {
+			return r < 32 || r == 127 || r == 160
+		})
 
 		userID := c.Sender().ID
 

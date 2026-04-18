@@ -330,6 +330,12 @@ func main() {
 
 		// FSM обработчики
 		switch state {
+		case models.StateAdminAddServiceName:
+			return handleAddServiceName(c, stateManager)
+		case models.StateAdminAddServicePrice:
+			return handleAddServicePrice(c, stateManager)
+		case models.StateAdminAddServiceDuration:
+			return handleAddServiceDuration(c, stateManager, database)
 		case models.StateAwaitingName:
 			return clientHandler.HandleNameInput(c)
 		case models.StateAwaitingPhone:
@@ -413,6 +419,66 @@ func parseDateTimeCallback(data string) []string {
 		parts = append(parts, data[11:16]) // время
 	}
 	return parts
+}
+
+// Обработчики добавления услуг
+func handleAddServiceName(c telebot.Context, sm *handlers.StateManager) error {
+	userID := c.Sender().ID
+	name := strings.TrimSpace(c.Message().Text)
+
+	if len(name) < 2 || len(name) > 100 {
+		return c.Send("❌ Название должно быть от 2 до 100 символов")
+	}
+
+	session := sm.GetUserSession(userID)
+	session.State = models.StateAdminAddServicePrice
+	if session.TempData == nil {
+		session.TempData = make(map[string]interface{})
+	}
+	session.TempData["newServiceName"] = name
+	sm.SetUserSession(userID, session)
+
+	return c.Send("💰 Введите цену услуги (в тг):")
+}
+
+func handleAddServicePrice(c telebot.Context, sm *handlers.StateManager) error {
+	userID := c.Sender().ID
+	priceStr := strings.TrimSpace(c.Message().Text)
+
+	var price float64
+	if _, err := fmt.Sscanf(priceStr, "%f", &price); err != nil || price <= 0 || price > 999999 {
+		return c.Send("❌ Введите корректную цену (число от 1 до 999999):")
+	}
+
+	session := sm.GetUserSession(userID)
+	session.State = models.StateAdminAddServiceDuration
+	session.TempData["newServicePrice"] = price
+	sm.SetUserSession(userID, session)
+
+	return c.Send("⏱️ Введите длительность услуги (в минутах):")
+}
+
+func handleAddServiceDuration(c telebot.Context, sm *handlers.StateManager, database *db.Database) error {
+	userID := c.Sender().ID
+	durationStr := strings.TrimSpace(c.Message().Text)
+
+	var duration int
+	if _, err := fmt.Sscanf(durationStr, "%d", &duration); err != nil || duration < 5 || duration > 1440 {
+		return c.Send("❌ Введите корректную длительность в минутах (от 5 до 1440):")
+	}
+
+	session := sm.GetUserSession(userID)
+	name, _ := session.TempData["newServiceName"].(string)
+	price, _ := session.TempData["newServicePrice"].(float64)
+
+	ctx := context.Background()
+	_, err := database.Exec(ctx, `INSERT INTO services (name, price, duration_min, is_available) VALUES ($1, $2, $3, true)`, name, price, duration)
+	if err != nil {
+		return c.Send("❌ Ошибка при сохранении услуги")
+	}
+
+	sm.ResetState(userID)
+	return c.Send("✅ Услуга успешно добавлена!\nНажмите /admin для возврата в панель.")
 }
 
 // Обработчики редактирования услуг

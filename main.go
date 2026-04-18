@@ -88,8 +88,16 @@ func main() {
 	adminHandler := handlers.NewAdminHandler(database, bot, stateManager, cfg.AdminIDs)
 	log.Println("✅ [ОБРАБОТЧИКИ] Обработчики созданы")
 
+	// ========== РЕГИСТРАЦИЯ КОМАНД В TELEGRAM API ==========
+	log.Println("📝 [РЕГИСТРАЦИЯ] Регистрирую команды в Telegram API...")
+	bot.SetCommands(
+		&telebot.Command{Text: "/start", Description: "Главное меню"},
+		&telebot.Command{Text: "/admin", Description: "Панель администратора"},
+	)
+	log.Println("✅ [РЕГИСТРАЦИЯ] Команды зарегистрированы")
+
 	// ========== КОМАНДЫ ==========
-	log.Println("📝 [РЕГИСТРАЦИЯ] Регистрирую команды...")
+	log.Println("📝 [РЕГИСТРАЦИЯ] Регистрирую handlers для команд...")
 
 	// /start
 	bot.Handle("/start", func(c telebot.Context) error {

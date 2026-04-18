@@ -106,12 +106,12 @@ func (ah *AdminHandler) HandleAdminMenu(c telebot.Context) error {
 	menu := &telebot.ReplyMarkup{}
 	menu.Inline(
 		menu.Row(
-			telebot.Btn{Text: "📅 Записи", Unique: "admin_appointments"},
-			telebot.Btn{Text: "💅 Услуги", Unique: "admin_services"},
+			menu.Data("📅 Записи", "admin_appointments"),
+			menu.Data("💅 Услуги", "admin_services"),
 		),
 		menu.Row(
-			telebot.Btn{Text: "⚙️ Настройки", Unique: "admin_settings"},
-			telebot.Btn{Text: "📊 Статистика", Unique: "admin_stats"},
+			menu.Data("⚙️ Настройки", "admin_settings"),
+			menu.Data("📊 Статистика", "admin_stats"),
 		),
 	)
 
@@ -161,10 +161,10 @@ func (ah *AdminHandler) HandleAdminAppointments(c telebot.Context) error {
 
 		menu.Inline(
 			menu.Row(
-				telebot.Btn{
-					Text:   fmt.Sprintf("%s #%d — %s — %s", statusEmoji, appointmentNum, customerName, appointmentTime.Format("02/01 15:04")),
-					Unique: fmt.Sprintf("admin_apt_detail_%d", id),
-				},
+				menu.Data(
+					fmt.Sprintf("%s #%d — %s — %s", statusEmoji, appointmentNum, customerName, appointmentTime.Format("02/01 15:04")),
+					fmt.Sprintf("admin_apt_detail_%d", id),
+				),
 			),
 		)
 	}
@@ -272,20 +272,20 @@ func (ah *AdminHandler) HandleAdminSettings(c telebot.Context) error {
 	menu := &telebot.ReplyMarkup{}
 	menu.Inline(
 		menu.Row(
-			telebot.Btn{Text: "📝 Название", Unique: "admin_set_name"},
-			telebot.Btn{Text: "📍 Адрес", Unique: "admin_set_address"},
+			menu.Data("📝 Название", "admin_set_name"),
+			menu.Data("📍 Адрес", "admin_set_address"),
 		),
 		menu.Row(
-			telebot.Btn{Text: "🕐 Время открытия", Unique: "admin_set_open"},
-			telebot.Btn{Text: "🕐 Время закрытия", Unique: "admin_set_close"},
+			menu.Data("🕐 Время открытия", "admin_set_open"),
+			menu.Data("🕐 Время закрытия", "admin_set_close"),
 		),
 		menu.Row(
-			telebot.Btn{Text: "🔔 Напоминание", Unique: "admin_set_reminder"},
-			telebot.Btn{Text: "💳 Предоплата %", Unique: "admin_set_prepay"},
+			menu.Data("🔔 Напоминание", "admin_set_reminder"),
+			menu.Data("💳 Предоплата %", "admin_set_prepay"),
 		),
 		menu.Row(
-			telebot.Btn{Text: "💬 Поддержка ID", Unique: "admin_set_support"},
-			telebot.Btn{Text: "🏠 Меню", Unique: "main_menu"},
+			menu.Data("💬 Поддержка ID", "admin_set_support"),
+			menu.Data("🏠 Меню", "main_menu"),
 		),
 	)
 

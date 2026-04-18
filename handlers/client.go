@@ -97,12 +97,12 @@ func (ch *ClientHandler) HandleStart(c telebot.Context) error {
 	menu := &telebot.ReplyMarkup{}
 	menu.Inline(
 		menu.Row(
-			telebot.Btn{Text: "📅 Записаться", Unique: "book_appointment"},
-			telebot.Btn{Text: "ℹ️ О нас", Unique: "about"},
+			menu.Data("📅 Записаться", "book_appointment"),
+			menu.Data("ℹ️ О нас", "about"),
 		),
 		menu.Row(
-			telebot.Btn{Text: "📋 Мои записи", Unique: "my_appointments"},
-			telebot.Btn{Text: "📞 Поддержка", Unique: "support"},
+			menu.Data("📋 Мои записи", "my_appointments"),
+			menu.Data("📞 Поддержка", "support"),
 		),
 	)
 

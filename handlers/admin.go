@@ -3,17 +3,12 @@ package handlers
 import (
 	"context"
 	"fmt"
-	"io"
 	"log"
-	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
 	"flower-bot/db"
 	"flower-bot/models"
-	"flower-bot/scheduler"
-	"flower-bot/services"
 
 	"gopkg.in/telebot.v3"
 )
@@ -23,17 +18,15 @@ type AdminHandler struct {
 	db           *db.Database
 	bot          *telebot.Bot
 	stateManager *StateManager
-	scheduler    *scheduler.Scheduler
 	adminIDs     []int64
 }
 
 // NewAdminHandler создает новый обработчик админа
-func NewAdminHandler(database *db.Database, bot *telebot.Bot, sm *StateManager, sch *scheduler.Scheduler, adminIDs []int64) *AdminHandler {
+func NewAdminHandler(database *db.Database, bot *telebot.Bot, sm *StateManager, adminIDs []int64) *AdminHandler {
 	return &AdminHandler{
 		db:           database,
 		bot:          bot,
 		stateManager: sm,
-		scheduler:    sch,
 		adminIDs:     adminIDs,
 	}
 }
@@ -69,29 +62,29 @@ func (ah *AdminHandler) HandleAdminMenu(c telebot.Context) error {
 	log.Printf("📊 [АДМИН] Админ %d открыл панель\n", userID)
 
 	// Получаем статистику
-	shopSettingsMap, err := ah.db.GetShopSettings(ctx)
-	shopName := "Flower Shop"
+	salonSettings, err := ah.db.GetSalonSettings(ctx)
+	salonName := "Beauty Salon"
 	address := "Не указан"
 	if err == nil {
-		if name, ok := shopSettingsMap["shop_name"].(string); ok {
-			shopName = name
+		if name, ok := salonSettings["salon_name"].(string); ok {
+			salonName = name
 		}
-		if addr, ok := shopSettingsMap["address"].(string); ok {
+		if addr, ok := salonSettings["address"].(string); ok {
 			address = addr
 		}
 	}
 
-	// Активные заказы
+	// Активные записи
 	pendingRow := ah.db.QueryRow(ctx,
-		`SELECT COUNT(*) FROM orders WHERE status IN ('pending', 'confirmed', 'delivering')`)
+		`SELECT COUNT(*) FROM appointments WHERE status IN ('scheduled', 'confirmed')`)
 	var pendingCount int
 	pendingRow.Scan(&pendingCount)
 
-	// Букеты
-	bouquetRow := ah.db.QueryRow(ctx,
-		`SELECT COUNT(*) FROM bouquets WHERE is_available = true`)
-	var bouquetCount int
-	bouquetRow.Scan(&bouquetCount)
+	// Услуги
+	serviceRow := ah.db.QueryRow(ctx,
+		`SELECT COUNT(*) FROM services WHERE is_available = true`)
+	var serviceCount int
+	serviceRow.Scan(&serviceCount)
 
 	// Пользователи
 	usersRow := ah.db.QueryRow(ctx, `SELECT COUNT(*) FROM users`)
@@ -100,21 +93,21 @@ func (ah *AdminHandler) HandleAdminMenu(c telebot.Context) error {
 
 	// Текст панели
 	text := fmt.Sprintf(
-		"🌸 АДМИН ПАНЕЛЬ 🌸\n\n"+
-			"Магазин: %s\n"+
+		"💅 АДМИН ПАНЕЛЬ 💅\n\n"+
+			"Салон: %s\n"+
 			"Адрес: %s\n\n"+
 			"📊 СТАТИСТИКА:\n"+
-			"🔴 Активные заказы: %d\n"+
-			"🌹 Букетов в каталоге: %d\n"+
-			"👥 Зарегистрировано пользователей: %d\n\n"+
+			"📅 Активные записи: %d\n"+
+			"💅 Услуг в каталоге: %d\n"+
+			"👥 Зарегистрировано клиентов: %d\n\n"+
 			"⚡ БЫСТРЫЕ ДЕЙСТВИЯ:\n",
-		shopName, address, pendingCount, bouquetCount, usersCount)
+		salonName, address, pendingCount, serviceCount, usersCount)
 
 	menu := &telebot.ReplyMarkup{}
 	menu.Inline(
 		menu.Row(
-			telebot.Btn{Text: "📦 Заказы", Unique: "admin_orders"},
-			telebot.Btn{Text: "🌸 Каталог", Unique: "admin_catalog"},
+			telebot.Btn{Text: "📅 Записи", Unique: "admin_appointments"},
+			telebot.Btn{Text: "💅 Услуги", Unique: "admin_services"},
 		),
 		menu.Row(
 			telebot.Btn{Text: "⚙️ Настройки", Unique: "admin_settings"},
@@ -125,1136 +118,365 @@ func (ah *AdminHandler) HandleAdminMenu(c telebot.Context) error {
 	return c.Send(text, menu)
 }
 
-// ========== ЗАКАЗЫ ==========
+// ========== ЗАПИСИ ==========
 
-// HandleAdminOrders показывает список заказов
-func (ah *AdminHandler) HandleAdminOrders(c telebot.Context) error {
+// HandleAdminAppointments показывает список записей
+func (ah *AdminHandler) HandleAdminAppointments(c telebot.Context) error {
 	ctx := context.Background()
 
 	rows, err := ah.db.Query(ctx,
-		`SELECT id, order_number, customer_name, status FROM orders
-		WHERE status != $1 AND status != $2
-		ORDER BY created_at DESC
+		`SELECT a.id, a.appointment_num, a.customer_name, a.status, a.appointment_time
+		FROM appointments a
+		WHERE a.status IN ($1, $2, $3)
+		ORDER BY a.appointment_time DESC
 		LIMIT 20`,
-		models.OrderStatusCompleted, models.OrderStatusCancelled)
+		models.AppointmentStatusScheduled, models.AppointmentStatusConfirmed, models.AppointmentStatusCompleted)
 	if err != nil {
-		log.Printf("❌ Ошибка получения заказов: %v\n", err)
-		return c.Edit("❌ Ошибка при загрузке заказов")
+		log.Printf("❌ Ошибка получения записей: %v\n", err)
+		return c.Edit("❌ Ошибка при загрузке записей")
 	}
 	defer rows.Close()
 
 	menu := &telebot.ReplyMarkup{}
 
 	for rows.Next() {
-		var id, orderNumber int
+		var id, appointmentNum int
 		var customerName, status string
+		var appointmentTime time.Time
 
-		if err := rows.Scan(&id, &orderNumber, &customerName, &status); err != nil {
-			log.Printf("❌ Ошибка сканирования заказа: %v\n", err)
+		if err := rows.Scan(&id, &appointmentNum, &customerName, &status, &appointmentTime); err != nil {
+			log.Printf("❌ Ошибка сканирования записи: %v\n", err)
 			continue
 		}
 
 		statusEmoji := map[string]string{
-			models.OrderStatusPending:    "🟡",
-			models.OrderStatusConfirmed:  "🟢",
-			models.OrderStatusDelivering: "🚚",
-			models.OrderStatusCompleted:  "✅",
-			models.OrderStatusCancelled:  "❌",
+			models.AppointmentStatusScheduled: "📅",
+			models.AppointmentStatusConfirmed: "✅",
+			models.AppointmentStatusCompleted: "✔️",
+			models.AppointmentStatusCancelled: "❌",
 		}[status]
 
 		menu.Inline(
 			menu.Row(
 				telebot.Btn{
-					Text:   fmt.Sprintf("%s #%d — %s", statusEmoji, orderNumber, customerName),
-					Unique: fmt.Sprintf("admin_order_detail_%d", id),
+					Text:   fmt.Sprintf("%s #%d — %s — %s", statusEmoji, appointmentNum, customerName, appointmentTime.Format("02/01 15:04")),
+					Unique: fmt.Sprintf("admin_apt_detail_%d", id),
 				},
 			),
 		)
 	}
 
-	return c.Edit("📦 Активные заказы:", menu)
+	return c.Edit("📅 Активные записи:", menu)
 }
 
-// HandleAdminOrderDetail показывает детали заказа
-func (ah *AdminHandler) HandleAdminOrderDetail(c telebot.Context, orderID int) error {
-	ctx := context.Background()
-
-	row := ah.db.QueryRow(ctx,
-		`SELECT o.id, o.order_number, o.customer_name, o.customer_phone, o.delivery_type,
-			o.payment_type, o.amount, o.delivery_address, o.status,
-			COALESCE(b.name, 'Кастомный букет') as bouquet_name
-		FROM orders o
-		LEFT JOIN bouquets b ON o.bouquet_id = b.id
-		WHERE o.id = $1`, orderID)
-
-	var id, orderNumber int
-	var customerName, customerPhone, deliveryType, paymentType, deliveryAddress, status, bouquetName string
-	var amount float64
-
-	if err := row.Scan(&id, &orderNumber, &customerName, &customerPhone, &deliveryType,
-		&paymentType, &amount, &deliveryAddress, &status, &bouquetName); err != nil {
-		log.Printf("❌ Ошибка получения заказа: %v\n", err)
-		return c.Edit("❌ Заказ не найден")
-	}
-
-	msg := fmt.Sprintf(
-		"📦 Заказ #%d\n\n"+
-			"👤 %s | %s\n"+
-
-			"🌸 %s\n"+
-			"📦 %s\n"+
-			"💳 %s\n"+
-			"💰 Сумма: %g тг\n"+
-			"📊 Статус: %s",
-		orderNumber, customerName, customerPhone, bouquetName,
-		map[string]string{models.DeliveryTypeDelivery: "🚚 Доставка", models.DeliveryTypePickup: "🏪 Самовывоз"}[deliveryType],
-		map[string]string{models.PaymentTypeKaspi: "💳 Kaspi Pay", models.PaymentTypeCash: "💵 Наличные"}[paymentType],
-		amount, status)
-
-	if deliveryType == models.DeliveryTypeDelivery {
-		msg += fmt.Sprintf("\n📍 Адрес: %s", deliveryAddress)
-	}
-
-	menu := &telebot.ReplyMarkup{}
-
-	switch status {
-	case models.OrderStatusPending:
-		menu.Inline(
-			menu.Row(
-				telebot.Btn{Text: "✅ Подтвердить", Unique: fmt.Sprintf("admin_confirm_order_%d", id)},
-				telebot.Btn{Text: "❌ Отменить", Unique: fmt.Sprintf("admin_cancel_order_%d", id)},
-			),
-		)
-	case models.OrderStatusConfirmed:
-		menu.Inline(
-			menu.Row(
-				telebot.Btn{Text: "🚚 Отправлен курьером", Unique: fmt.Sprintf("admin_delivering_%d", id)},
-				telebot.Btn{Text: "✅ Отдан клиенту", Unique: fmt.Sprintf("admin_complete_%d", id)},
-			),
-		)
-	case models.OrderStatusDelivering:
-		menu.Inline(
-			menu.Row(
-				telebot.Btn{Text: "✅ Отдан клиенту", Unique: fmt.Sprintf("admin_complete_%d", id)},
-			),
-		)
-	}
-
-	return c.Edit(msg, &telebot.SendOptions{ParseMode: telebot.ModeHTML}, menu)
-}
-
-// HandleAdminConfirmOrder подтверждает заказ
-func (ah *AdminHandler) HandleAdminConfirmOrder(c telebot.Context, orderID int) error {
-	// Двойное подтверждение
-	menu := &telebot.ReplyMarkup{}
-	menu.Inline(
-		menu.Row(
-			telebot.Btn{Text: "✅ Да, подтвердить", Unique: fmt.Sprintf("admin_confirm_yes_%d", orderID)},
-			telebot.Btn{Text: "❌ Отмена", Unique: fmt.Sprintf("admin_cancel_confirm_%d", orderID)},
-		),
-	)
-
-	return c.Edit("❓ Подтвердить заказ?", menu)
-}
-
-// HandleAdminConfirmYes finalizes confirm
-func (ah *AdminHandler) HandleAdminConfirmOrderYes(c telebot.Context, orderID int) error {
-	ctx := context.Background()
-
-	// Получаем информацию о заказе
-	row := ah.db.QueryRow(ctx,
-		`SELECT order_number, user_id, bouquet_id, payment_type
-		FROM orders WHERE id = $1`, orderID)
-
-	var orderNumber int
-	var userID int64
-	var bouquetID *int
-	var paymentType string
-
-	if err := row.Scan(&orderNumber, &userID, &bouquetID, &paymentType); err != nil {
-		log.Printf("❌ Ошибка получения заказа: %v\n", err)
-		return c.Edit("❌ Ошибка при подтверждении заказа")
-	}
-
-	// Обновляем статус заказа
-	_, err := ah.db.Exec(ctx,
-		`UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2`,
-		models.OrderStatusConfirmed, orderID)
-	if err != nil {
-		log.Printf("❌ Ошибка обновления заказа: %v\n", err)
-		return c.Edit("❌ Ошибка при подтверждении заказа")
-	}
-
-	// Если был букет из каталога - уменьшаем количество
-	if bouquetID != nil && *bouquetID > 0 {
-		_, err := ah.db.Exec(ctx,
-			`UPDATE bouquets SET quantity = quantity - 1, is_available = (quantity - 1) > 0, 
-			reserved_by = NULL, reserved_until = NULL WHERE id = $1`, *bouquetID)
-		if err != nil {
-			log.Printf("❌ Ошибка обновления количества букета: %v\n", err)
-		}
-
-		// Отменяем таймер на резерв
-		ah.scheduler.CancelBouquetTimer(*bouquetID)
-	}
-
-	// Уведомляем пользователя
-	user := &telebot.User{ID: userID}
-	msg := fmt.Sprintf("✅ Ваш заказ #%d подтверждён! Начинаем подготовку. 🎊", orderNumber)
-	if _, err := ah.bot.Send(user, msg); err != nil {
-		log.Printf("❌ Ошибка отправки уведомления пользователю: %v\n", err)
-	}
-
-	log.Printf("✅ Заказ #%d подтверждён\n", orderNumber)
-
-	return c.Edit(fmt.Sprintf("✅ Заказ #%d подтверждён", orderNumber))
-}
-
-// HandleAdminCancelOrder отменяет заказ
-func (ah *AdminHandler) HandleAdminCancelOrder(c telebot.Context, orderID int) error {
-	menu := &telebot.ReplyMarkup{}
-	menu.Inline(
-		menu.Row(
-			telebot.Btn{Text: "✅ Да, отменить", Unique: fmt.Sprintf("admin_cancel_yes_%d", orderID)},
-			telebot.Btn{Text: "❌ Отмена", Unique: fmt.Sprintf("admin_cancel_confirm_%d", orderID)},
-		),
-	)
-
-	return c.Edit("❓ Отменить заказ?", menu)
-}
-
-// HandleAdminCancelOrderYes finalizes cancel
-func (ah *AdminHandler) HandleAdminCancelOrderYes(c telebot.Context, orderID int) error {
-	ctx := context.Background()
-
-	// Получаем информацию о заказе
-	row := ah.db.QueryRow(ctx,
-		`SELECT order_number, user_id, bouquet_id
-		FROM orders WHERE id = $1`, orderID)
-
-	var orderNumber int
-	var userID int64
-	var bouquetID *int
-
-	if err := row.Scan(&orderNumber, &userID, &bouquetID); err != nil {
-		log.Printf("❌ Ошибка получения заказа: %v\n", err)
-		return c.Edit("❌ Ошибка при отмене заказа")
-	}
-
-	// Обновляем статус заказа
-	_, err := ah.db.Exec(ctx,
-		`UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2`,
-		models.OrderStatusCancelled, orderID)
-	if err != nil {
-		log.Printf("❌ Ошибка обновления заказа: %v\n", err)
-		return c.Edit("❌ Ошибка при отмене заказа")
-	}
-
-	// Если был букет из каталога - восстанавливаем перезарезервирование
-	if bouquetID != nil && *bouquetID > 0 {
-		_, err := ah.db.Exec(ctx,
-			`UPDATE bouquets SET is_available = true, reserved_by = NULL, reserved_until = NULL
-			WHERE id = $1`, *bouquetID)
-		if err != nil {
-			log.Printf("❌ Ошибка обновления букета: %v\n", err)
-		}
-
-		// Отменяем таймер на резерв
-		ah.scheduler.CancelBouquetTimer(*bouquetID)
-	}
-
-	// Уведомляем пользователя
-	user := &telebot.User{ID: userID}
-	msg := fmt.Sprintf("❌ Заказ #%d отменён.\n\nВы можете создать новый заказ.", orderNumber)
-	if _, err := ah.bot.Send(user, msg); err != nil {
-		log.Printf("❌ Ошибка отправки уведомления пользователю: %v\n", err)
-	}
-
-	log.Printf("✅ Заказ #%d отменён\n", orderNumber)
-
-	return c.Edit(fmt.Sprintf("✅ Заказ #%d отменён", orderNumber))
-}
-
-// HandleAdminDelivering обновляет статус на доставку
-func (ah *AdminHandler) HandleAdminDelivering(c telebot.Context, orderID int) error {
-	ctx := context.Background()
-
-	row := ah.db.QueryRow(ctx, "SELECT order_number, user_id FROM orders WHERE id = $1", orderID)
-	var orderNumber int
-	var userID int64
-	if err := row.Scan(&orderNumber, &userID); err != nil {
-		return c.Edit("❌ Заказ не найден")
-	}
-
-	_, err := ah.db.Exec(ctx,
-		`UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2`,
-		models.OrderStatusDelivering, orderID)
-	if err != nil {
-		return c.Edit("❌ Ошибка обновления")
-	}
-
-	// Уведомляем пользователя
-	user := &telebot.User{ID: userID}
-	msg := fmt.Sprintf("🚚 Заказ #%d отправлен в доставку! Курьер скоро будет у вас.", orderNumber)
-	if _, err := ah.bot.Send(user, msg); err != nil {
-		log.Printf("❌ Ошибка отправки уведомления: %v\n", err)
-	}
-
-	return c.Edit(fmt.Sprintf("✅ Заказ #%d в доставке", orderNumber))
-}
-
-// HandleAdminComplete завершает заказ
-func (ah *AdminHandler) HandleAdminComplete(c telebot.Context, orderID int) error {
-	ctx := context.Background()
-
-	row := ah.db.QueryRow(ctx, "SELECT order_number, user_id FROM orders WHERE id = $1", orderID)
-	var orderNumber int
-	var userID int64
-	if err := row.Scan(&orderNumber, &userID); err != nil {
-		return c.Edit("❌ Заказ не найден")
-	}
-
-	_, err := ah.db.Exec(ctx,
-		`UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2`,
-		models.OrderStatusCompleted, orderID)
-	if err != nil {
-		return c.Edit("❌ Ошибка обновления")
-	}
-
-	// Уведомляем пользователя
-	user := &telebot.User{ID: userID}
-	msg := fmt.Sprintf("✅ Заказ #%d выполнен! Спасибо за покупку! 🌸", orderNumber)
-	if _, err := ah.bot.Send(user, msg); err != nil {
-		log.Printf("❌ Ошибка отправки уведомления: %v\n", err)
-	}
-
-	return c.Edit(fmt.Sprintf("✅ Заказ #%d завершён", orderNumber))
-}
-
-// HandleAdminPaymentAccept принимает оплату
-func (ah *AdminHandler) HandleAdminPaymentAccept(c telebot.Context, orderID int) error {
-	menu := &telebot.ReplyMarkup{}
-	menu.Inline(
-		menu.Row(
-			telebot.Btn{Text: "✅ Да, оплата получена", Unique: fmt.Sprintf("admin_accept_yes_%d", orderID)},
-			telebot.Btn{Text: "❌ Отмена", Unique: fmt.Sprintf("admin_cancel_confirm_%d", orderID)},
-		),
-	)
-
-	return c.Edit("❓ Подтвердить получение оплаты?", menu)
-}
-
-// HandleAdminPaymentAcceptYes finalizes payment accept
-func (ah *AdminHandler) HandleAdminPaymentAcceptYes(c telebot.Context, orderID int) error {
-	ctx := context.Background()
-
-	row := ah.db.QueryRow(ctx, "SELECT order_number, user_id, bouquet_id FROM orders WHERE id = $1", orderID)
-	var orderNumber int
-	var userID int64
-	var bouquetID *int
-
-	if err := row.Scan(&orderNumber, &userID, &bouquetID); err != nil {
-		return c.Edit("❌ Заказ не найден")
-	}
-
-	// Обновляем статус
-	_, err := ah.db.Exec(ctx,
-		`UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2`,
-		models.OrderStatusConfirmed, orderID)
-	if err != nil {
-		return c.Edit("❌ Ошибка обновления")
-	}
-
-	// Уменьшаем количество букета ОДИН РАЗ при подтверждении оплаты
-	if bouquetID != nil && *bouquetID > 0 {
-		// Получаем текущее количество и фото до обновления
-		row := ah.db.QueryRow(ctx,
-			`SELECT quantity, photo_urls FROM bouquets WHERE id = $1`, *bouquetID)
-		var currentQty int
-		var photoURLs []string
-		if err := row.Scan(&currentQty, &photoURLs); err == nil {
-			// Уменьшаем на 1
-			newQty := currentQty - 1
-
-			// Обновляем букет: уменьшаем quantity и снимаем флаги резерва
-			_, err := ah.db.Exec(ctx,
-				`UPDATE bouquets SET quantity = quantity - 1, is_available = (quantity - 1) > 0,
-				reserved_by = NULL, reserved_until = NULL WHERE id = $1`, *bouquetID)
-			if err != nil {
-				log.Printf("❌ Ошибка обновления букета: %v\n", err)
-			}
-
-			// Если количество стало 0 - удаляем букет и его фотки
-			if newQty <= 0 {
-				log.Printf("🗑️ Удаляю букет #%d т.к. quantity = 0\n", *bouquetID)
-
-				// Удаляем фотки из S3
-				for _, photoURL := range photoURLs {
-					// Извлекаем имя файла из URL (последняя часть после последнего /)
-					parts := strings.Split(photoURL, "/")
-					if len(parts) > 0 {
-						fileName := parts[len(parts)-1]
-						if err := services.DeleteFileFromS3(fileName, "products"); err != nil {
-							log.Printf("⚠️ Ошибка удаления фото из S3: %v\n", err)
-						} else {
-							log.Printf("✅ Фото удалено из S3: %s\n", fileName)
-						}
-					}
-				}
-
-				// Удаляем букет из БД
-				_, err := ah.db.Exec(ctx, `DELETE FROM bouquets WHERE id = $1`, *bouquetID)
-				if err != nil {
-					log.Printf("❌ Ошибка удаления букета: %v\n", err)
-				} else {
-					log.Printf("✅ Букет #%d удалён из БД\n", *bouquetID)
-				}
-			}
-		}
-	}
-
-	// Отменяем таймер на чек
-	ah.scheduler.CancelOrderTimer(orderID)
-
-	// Уведомляем пользователя
-	user := &telebot.User{ID: userID}
-	msg := fmt.Sprintf("✅ Оплата подтверждена! Заказ #%d в работе. 🎊", orderNumber)
-	if _, err := ah.bot.Send(user, msg); err != nil {
-		log.Printf("❌ Ошибка отправки уведомления: %v\n", err)
-	}
-
-	return c.Edit(fmt.Sprintf("✅ Оплата по заказу #%d принята", orderNumber))
-}
-
-// HandleAdminPaymentReject отклоняет оплату
-func (ah *AdminHandler) HandleAdminPaymentReject(c telebot.Context, orderID int) error {
-	menu := &telebot.ReplyMarkup{}
-	menu.Inline(
-		menu.Row(
-			telebot.Btn{Text: "✅ Да, отклонить", Unique: fmt.Sprintf("admin_reject_yes_%d", orderID)},
-			telebot.Btn{Text: "❌ Отмена", Unique: fmt.Sprintf("admin_cancel_confirm_%d", orderID)},
-		),
-	)
-
-	return c.Edit("❓ Отклонить оплату?", menu)
-}
-
-// HandleAdminPaymentRejectYes finalizes payment reject
-func (ah *AdminHandler) HandleAdminPaymentRejectYes(c telebot.Context, orderID int) error {
-	ctx := context.Background()
-
-	row := ah.db.QueryRow(ctx, "SELECT order_number, user_id, bouquet_id FROM orders WHERE id = $1", orderID)
-	var orderNumber int
-	var userID int64
-	var bouquetID *int
-
-	if err := row.Scan(&orderNumber, &userID, &bouquetID); err != nil {
-		return c.Edit("❌ Заказ не найден")
-	}
-
-	// Отменяем заказ
-	_, err := ah.db.Exec(ctx,
-		`UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2`,
-		models.OrderStatusCancelled, orderID)
-	if err != nil {
-		return c.Edit("❌ Ошибка обновления")
-	}
-
-	// Возвращаем букет в каталог
-	if bouquetID != nil && *bouquetID > 0 {
-		_, err := ah.db.Exec(ctx,
-			`UPDATE bouquets SET is_available = true, reserved_by = NULL, reserved_until = NULL
-			WHERE id = $1`, *bouquetID)
-		if err != nil {
-			log.Printf("❌ Ошибка обновления букета: %v\n", err)
-		}
-
-		ah.scheduler.CancelBouquetTimer(*bouquetID)
-	}
-
-	// Отменяем таймер на чек
-	ah.scheduler.CancelOrderTimer(orderID)
-
-	// Уведомляем пользователя
-	user := &telebot.User{ID: userID}
-	msg := fmt.Sprintf("❌ Оплата не была подтверждена. Заказ #%d отменён.\n\nБукет возвращён в каталог.", orderNumber)
-	if _, err := ah.bot.Send(user, msg); err != nil {
-		log.Printf("❌ Ошибка отправки уведомления: %v\n", err)
-	}
-
-	return c.Edit(fmt.Sprintf("✅ Оплата по заказу #%d отклонена", orderNumber))
-}
-
-// ========== КАТАЛОГ ==========
-
-// HandleAdminCatalog показывает каталог для админа
-func (ah *AdminHandler) HandleAdminCatalog(c telebot.Context) error {
+// HandleAdminServices показывает список услуг
+func (ah *AdminHandler) HandleAdminServices(c telebot.Context) error {
 	ctx := context.Background()
 
 	rows, err := ah.db.Query(ctx,
-		`SELECT id, name, quantity, is_available FROM bouquets
-		ORDER BY created_at DESC
-		LIMIT 20`)
+		`SELECT id, name, price, duration_min, is_available FROM services ORDER BY name`)
 	if err != nil {
-		log.Printf("❌ Ошибка получения букетов: %v\n", err)
-		return c.Edit("❌ Ошибка при загрузке каталога")
+		log.Printf("❌ Ошибка получения услуг: %v\n", err)
+		return c.Edit("❌ Ошибка при загрузке услуг")
 	}
 	defer rows.Close()
 
+	text := "💅 УСЛУГИ:\n\n"
 	menu := &telebot.ReplyMarkup{}
+	var btnRows []telebot.Row
 
 	for rows.Next() {
-		var id, quantity int
+		var id, duration int
 		var name string
+		var price float64
 		var isAvailable bool
 
-		if err := rows.Scan(&id, &name, &quantity, &isAvailable); err != nil {
-			log.Printf("❌ Ошибка сканирования букета: %v\n", err)
+		if err := rows.Scan(&id, &name, &price, &duration, &isAvailable); err != nil {
+			log.Printf("❌ Ошибка сканирования услуги: %v\n", err)
 			continue
 		}
 
-		statusEmoji := "✅"
+		availability := "✅"
 		if !isAvailable {
-			statusEmoji = "❌"
+			availability = "❌"
 		}
 
-		menu.Inline(
-			menu.Row(
-				telebot.Btn{
-					Text:   fmt.Sprintf("%s %s (%d)", statusEmoji, name, quantity),
-					Unique: fmt.Sprintf("admin_bouquet_detail_%d", id),
-				},
-			),
+		text += fmt.Sprintf("%s %s • %g тг • %d мин\n", availability, name, price, duration)
+
+		btn := menu.Data(
+			fmt.Sprintf("✏️ %s", name),
+			fmt.Sprintf("admin_edit_service_%d", id),
 		)
+		btnRows = append(btnRows, menu.Row(btn))
 	}
 
-	menu.Inline(
-		menu.Row(
-			telebot.Btn{Text: "➕ Добавить букет", Unique: "admin_add_bouquet"},
-		),
-	)
+	btnRows = append(btnRows, menu.Row(
+		menu.Data("➕ Добавить услугу", "admin_add_service"),
+	))
 
-	return c.Edit("🌸 Каталог букетов:", menu)
+	menu.Inline(btnRows...)
+
+	return c.Edit(text, menu)
 }
 
-// HandleAdminBouquetDetail показывает детали букета
-func (ah *AdminHandler) HandleAdminBouquetDetail(c telebot.Context, bouquetID int) error {
-	ctx := context.Background()
-
-	row := ah.db.QueryRow(ctx,
-		`SELECT id, name, description, price, quantity, is_available FROM bouquets WHERE id = $1`,
-		bouquetID)
-
-	var id, quantity int
-	var name, description string
-	var price float64
-	var isAvailable bool
-
-	if err := row.Scan(&id, &name, &description, &price, &quantity, &isAvailable); err != nil {
-		log.Printf("❌ Ошибка получения букета: %v\n", err)
-		return c.Edit("❌ Букет не найден")
-	}
-
-	msg := fmt.Sprintf(
-		"🌸 %s\n\n"+
-			"📝 %s\n"+
-			"💰 Цена: %g тг\n"+
-			"📦 Кол-во: %d шт\n"+
-			"📊 Статус: %s",
-		name, description, price, quantity,
-		map[bool]string{true: "✅ Доступен", false: "❌ Скрыт"}[isAvailable])
-
-	menu := &telebot.ReplyMarkup{}
-	menu.Inline(
-		menu.Row(
-			telebot.Btn{Text: "✏️ Редактировать", Unique: fmt.Sprintf("admin_edit_bouquet_%d", id)},
-			telebot.Btn{Text: "🗑 Удалить", Unique: fmt.Sprintf("admin_delete_bouquet_%d", id)},
-		),
-		menu.Row(
-			telebot.Btn{
-				Text:   map[bool]string{true: "👁 Скрыть", false: "👁 Показать"}[isAvailable],
-				Unique: fmt.Sprintf("admin_toggle_bouquet_%d", id),
-			},
-		),
-	)
-
-	return c.Edit(msg, &telebot.SendOptions{ParseMode: telebot.ModeHTML}, menu)
-}
-
-// HandleAdminAddBouquet начинает добавление букета
-func (ah *AdminHandler) HandleAdminAddBouquet(c telebot.Context) error {
-	userID := c.Sender().ID
-	ah.stateManager.SetState(userID, models.StateAdminAddBouquetName)
-
-	menu := &telebot.ReplyMarkup{ForceReply: true}
-	return c.Send("🌸 Введите название букета:", menu)
-}
-
-// HandleAdminBouquetNameInput обрабатывает название букета
-func (ah *AdminHandler) HandleAdminBouquetNameInput(c telebot.Context) error {
-	userID := c.Sender().ID
-	text := c.Message().Text
-
-	if text == "" || len(text) < 2 {
-		return c.Send("❌ Пожалуйста, введите корректное название")
-	}
-
-	ah.stateManager.SetTempData(userID, text)
-	ah.stateManager.SetState(userID, models.StateAdminAddBouquetDesc)
-
-	menu := &telebot.ReplyMarkup{ForceReply: true}
-	return c.Send("📝 Введите описание букета:", menu)
-}
-
-// HandleAdminBouquetDescInput обрабатывает описание букета
-func (ah *AdminHandler) HandleAdminBouquetDescInput(c telebot.Context) error {
-	userID := c.Sender().ID
-	text := c.Message().Text
-
-	if text == "" || len(text) < 5 {
-		return c.Send("❌ Пожалуйста, введите подробное описание")
-	}
-
-	// Сохраняем название, которое было до этого
-	tempData := ah.stateManager.GetTempData(userID)
-	ah.stateManager.SetTempData(userID, fmt.Sprintf("%s|||%s", tempData, text))
-	ah.stateManager.SetState(userID, models.StateAdminAddBouquetPrice)
-
-	menu := &telebot.ReplyMarkup{ForceReply: true}
-	return c.Send("💰 Введите цену (в тенге):", menu)
-}
-
-// HandleAdminBouquetPriceInput обрабатывает цену букета
-func (ah *AdminHandler) HandleAdminBouquetPriceInput(c telebot.Context) error {
-	userID := c.Sender().ID
-	text := c.Message().Text
-
-	// Валидируем цену
-	priceRegex := regexp.MustCompile(`^[\d.]+$`)
-	if !priceRegex.MatchString(text) {
-		return c.Send("❌ Пожалуйста, введите корректную цену (только числа)")
-	}
-
-	tempData := ah.stateManager.GetTempData(userID)
-	ah.stateManager.SetTempData(userID, fmt.Sprintf("%s|||%s", tempData, text))
-	ah.stateManager.SetState(userID, models.StateAdminAddBouquetQty)
-
-	menu := &telebot.ReplyMarkup{ForceReply: true}
-	return c.Send("📦 Введите количество bukетов в наличии:", menu)
-}
-
-// HandleAdminBouquetQtyInput обрабатывает количество букетов
-func (ah *AdminHandler) HandleAdminBouquetQtyInput(c telebot.Context) error {
-	userID := c.Sender().ID
-	text := c.Message().Text
-
-	// Валидируем количество
-	qtyRegex := regexp.MustCompile(`^\d+$`)
-	if !qtyRegex.MatchString(text) {
-		return c.Send("❌ Пожалуйста, введите корректное количество (только числа)")
-	}
-
-	tempData := ah.stateManager.GetTempData(userID)
-	ah.stateManager.SetTempData(userID, fmt.Sprintf("%s|||%s", tempData, text))
-	ah.stateManager.SetState(userID, models.StateAdminAddBouquetPhoto)
-
-	menu := &telebot.ReplyMarkup{RemoveKeyboard: true}
-	btnDone := menu.Text("✅ Готово")
-	menu.Reply(
-		menu.Row(btnDone),
-	)
-
-	return c.Send("📸 Отправьте фото букета (до 5 штук, можно альбомом). После отправки всех фото нажмите кнопку \"✅ Готово\":", menu)
-}
-
-// HandleAdminBouquetPhotoInput обрабатывает фото букета
-func (ah *AdminHandler) HandleAdminBouquetPhotoInput(c telebot.Context) error {
-	ctx := context.Background()
+// HandleAdminAddService начинает добавление услуги
+func (ah *AdminHandler) HandleAdminAddService(c telebot.Context) error {
 	userID := c.Sender().ID
 
-	tempData := ah.stateManager.GetTempData(userID)
-	parts := strings.Split(tempData, "|||")
+	// Устанавливаем состояние
+	session := ah.stateManager.GetUserSession(userID)
+	session.State = models.StateAdminAddServiceName
+	ah.stateManager.SetUserSession(userID, session)
 
-	// Если пользователь нажал кнопку Готово
-	if c.Message().Text == "✅ Готово" {
-		if len(parts) < 5 {
-			return c.Send("❌ Вы не добавили ни одного фото. Отправьте хотя бы одно фото.", &telebot.ReplyMarkup{RemoveKeyboard: true})
-		}
-
-		name := parts[0]
-		description := parts[1]
-		price, _ := strconv.ParseFloat(parts[2], 64)
-		qty, _ := strconv.ParseInt(parts[3], 10, 64)
-
-		var photoURLs []string
-		for i := 4; i < len(parts); i++ {
-			if parts[i] != "" {
-				photoURLs = append(photoURLs, parts[i])
-			}
-		}
-
-		// Добавляем букет в БД
-		var bouquetID int
-		err := ah.db.QueryRow(ctx,
-			`INSERT INTO bouquets (name, description, price, photo_urls, quantity, is_available, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, NOW())
-			RETURNING id`,
-			name, description, price, photoURLs, qty, true).Scan(&bouquetID)
-
-		if err != nil {
-			log.Printf("❌ Ошибка добавления букета: %v\n", err)
-			return c.Send("❌ Ошибка при добавлении букета", &telebot.ReplyMarkup{RemoveKeyboard: true})
-		}
-
-		log.Printf("✅ Добавлен букет #%d\n", bouquetID)
-		ah.stateManager.ResetState(userID)
-
-		msg := fmt.Sprintf("✅ Букет добавлен!\n\n"+
-			"🌸 %s\n"+
-			"💰 %g тг\n"+
-			"📦 %d шт",
-			name, price, qty)
-
-		return c.Send(msg, &telebot.SendOptions{ParseMode: telebot.ModeHTML}, &telebot.ReplyMarkup{RemoveKeyboard: true})
+	text := "📝 Введите название услуги:"
+	msg, err := ah.bot.Send(c.Sender(), text)
+	if err == nil {
+		ah.stateManager.AddMessageToDelete(userID, msg.ID)
 	}
 
-	// Обработка загрузки фото
-	if len(parts) >= 9 {
-		return c.Send("❌ Вы уже загрузили 5 фото. Нажмите кнопку '✅ Готово'.")
-	}
-
-	var extPhotoURL string
-	if c.Message().Photo != nil {
-		file, err := ah.bot.FileByID(c.Message().Photo.FileID)
-		if err != nil {
-			return c.Send("❌ Ошибка получения файла от Telegram")
-		}
-
-		rc, err := ah.bot.File(&file)
-		if err != nil {
-			return c.Send("❌ Ошибка скачивания файла")
-		}
-		defer rc.Close()
-
-		fileBytes, err := io.ReadAll(rc)
-		if err != nil {
-			return c.Send("❌ Ошибка чтения файла")
-		}
-
-		fileName := fmt.Sprintf("product_%d_%s.jpg", time.Now().UnixNano(), c.Message().Photo.FileID[:10])
-		s3url, err := services.UploadFileToS3(fileBytes, fileName, "image/jpeg", "products")
-		if err != nil {
-			log.Printf("S3 upload err: %v", err)
-			return c.Send("❌ Ошибка загрузки в S3")
-		}
-		extPhotoURL = s3url
-	} else if c.Message().Text != "" {
-		extPhotoURL = c.Message().Text
-	} else {
-		return c.Send("❌ Пожалуйста, отправьте фото как картинку.")
-	}
-
-	newData := ah.stateManager.AppendTempData(userID, fmt.Sprintf("|||%s", extPhotoURL))
-
-	newParts := strings.Split(newData, "|||")
-	photosCount := len(newParts) - 4
-
-	return c.Send(fmt.Sprintf("✅ Фото добавлено (%d/5). Отправьте еще или нажмите '✅ Готово'.", photosCount))
+	return err
 }
 
-// HandleAdminToggleBouquet скрывает/показывает букет
-func (ah *AdminHandler) HandleAdminToggleBouquet(c telebot.Context, bouquetID int) error {
-	ctx := context.Background()
-
-	row := ah.db.QueryRow(ctx, "SELECT is_available FROM bouquets WHERE id = $1", bouquetID)
-	var isAvailable bool
-	if err := row.Scan(&isAvailable); err != nil {
-		return c.Edit("❌ Букет не найден")
-	}
-
-	_, err := ah.db.Exec(ctx,
-		`UPDATE bouquets SET is_available = $1 WHERE id = $2`,
-		!isAvailable, bouquetID)
-	if err != nil {
-		return c.Edit("❌ Ошибка обновления")
-	}
-
-	msg := fmt.Sprintf("✅ Букет %s", map[bool]string{true: "показан", false: "скрыт"}[!isAvailable])
-	return c.Edit(msg)
-}
-
-// HandleAdminDeleteBouquet удаляет букет
-func (ah *AdminHandler) HandleAdminDeleteBouquet(c telebot.Context, bouquetID int) error {
-	ctx := context.Background()
-
-	_, err := ah.db.Exec(ctx, "DELETE FROM bouquets WHERE id = $1", bouquetID)
-	if err != nil {
-		return c.Edit("❌ Ошибка удаления")
-	}
-
-	return c.Edit("✅ Букет удален")
-}
-
-// ========== КАСТОМНЫЕ ЗАКАЗЫ ==========
-
-// HandleAdminCustomAccept принимает кастомный букет
-func (ah *AdminHandler) HandleAdminCustomAccept(c telebot.Context, customOrderID int) error {
-	userID := c.Sender().ID
-	ah.stateManager.SetState(userID, models.StateAdminSetPrice)
-	ah.stateManager.SetTempData(userID, fmt.Sprintf("custom_%d", customOrderID))
-
-	menu := &telebot.ReplyMarkup{ForceReply: true}
-	return c.Send("💰 Введите цену за этот букет (в тенге):", menu)
-}
-
-// HandleAdminCustomPriceInput обрабатывает цену для кастомного букета
-func (ah *AdminHandler) HandleAdminCustomPriceInput(c telebot.Context) error {
-	ctx := context.Background()
-	userID := c.Sender().ID
-	text := c.Message().Text
-
-	// Валидируем цену
-	priceRegex := regexp.MustCompile(`^[\d.]+$`)
-	if !priceRegex.MatchString(text) {
-		return c.Send("❌ Пожалуйста, введите корректную цену")
-	}
-
-	tempData := ah.stateManager.GetTempData(userID)
-	parts := strings.Split(tempData, "_")
-	if len(parts) != 2 {
-		return c.Edit("❌ Ошибка")
-	}
-
-	customOrderID, _ := strconv.Atoi(parts[1])
-	price, _ := strconv.ParseFloat(text, 64)
-
-	// Получаем user_id из custom_orders
-	row := ah.db.QueryRow(ctx, "SELECT user_id FROM custom_orders WHERE id = $1", customOrderID)
-	var customerUserID int64
-	if err := row.Scan(&customerUserID); err != nil {
-		return c.Edit("❌ Заказ не найден")
-	}
-
-	// Обновляем кастомный букет
-	_, err := ah.db.Exec(ctx,
-		`UPDATE custom_orders SET admin_price = $1, status = $2 WHERE id = $3`,
-		price, models.CustomOrderStatusAccepted, customOrderID)
-	if err != nil {
-		log.Printf("❌ Ошибка обновления кастомного букета: %v\n", err)
-		return c.Edit("❌ Ошибка при обновлении")
-	}
-
-	// Уведомляем пользователя
-	user := &telebot.User{ID: customerUserID}
-	msg := fmt.Sprintf(
-		"🌸 Ваш букет принят!\n\n"+
-			"💰 Стоимость: %g тг\n\n"+
-			"Для оплаты нажмите на кнопку ниже.",
-		price)
-
-	menu := &telebot.ReplyMarkup{}
-	menu.Inline(
-		menu.Row(
-			telebot.Btn{Text: "💳 Оплатить", Unique: fmt.Sprintf("pay_custom_%d", customOrderID)},
-		),
-	)
-
-	if _, err := ah.bot.Send(user, msg, &telebot.SendOptions{ParseMode: telebot.ModeHTML}, menu); err != nil {
-		log.Printf("❌ Ошибка отправки уведомления: %v\n", err)
-	}
-
-	ah.stateManager.ResetState(userID)
-	log.Printf("✅ Кастомный букет #%d принят с ценой %g\n", customOrderID, price)
-
-	return c.Edit(fmt.Sprintf("✅ Букет принят с ценой %g тг", price))
-}
-
-// HandleAdminCustomReject отклоняет кастомный букет
-func (ah *AdminHandler) HandleAdminCustomReject(c telebot.Context, customOrderID int) error {
-	ctx := context.Background()
-
-	row := ah.db.QueryRow(ctx, "SELECT user_id FROM custom_orders WHERE id = $1", customOrderID)
-	var customerUserID int64
-	if err := row.Scan(&customerUserID); err != nil {
-		return c.Edit("❌ Заказ не найден")
-	}
-
-	// Обновляем статус
-	_, err := ah.db.Exec(ctx,
-		`UPDATE custom_orders SET status = $1 WHERE id = $2`,
-		models.CustomOrderStatusRejected, customOrderID)
-	if err != nil {
-		return c.Edit("❌ Ошибка обновления")
-	}
-
-	// Уведомляем пользователя
-	user := &telebot.User{ID: customerUserID}
-	msg := "😔 К сожалению, мы не сможем выполнить ваш запрос. Спасибо за интерес к нам! 🌸"
-	if _, err := ah.bot.Send(user, msg); err != nil {
-		log.Printf("❌ Ошибка отправки уведомления: %v\n", err)
-	}
-
-	return c.Edit("✅ Заказ отклонён")
-}
-
-// ========== НАСТРОЙКИ ==========
-
-// HandleAdminSettings показывает меню настроек
+// HandleAdminSettings показывает панель настроек
 func (ah *AdminHandler) HandleAdminSettings(c telebot.Context) error {
 	ctx := context.Background()
 
-	// Получаем текущие настройки
-	row := ah.db.QueryRow(ctx,
-		`SELECT shop_name, address, support_user_id, kaspi_link, about_channel_link FROM shop_settings LIMIT 1`)
-
-	var shopName, address, kaspiLink, aboutChannelLink string
-	var supportID *int64
-
-	if err := row.Scan(&shopName, &address, &supportID, &kaspiLink, &aboutChannelLink); err != nil {
-		return c.Edit("❌ Ошибка при загрузке настроек")
+	salonSettings, err := ah.db.GetSalonSettings(ctx)
+	if err != nil {
+		log.Printf("❌ Ошибка получения настроек: %v\n", err)
+		return c.Edit("❌ Ошибка")
 	}
 
-	// Получаем значения или используем дефолтные тексты
-	supportIDStr := "Не установлен"
-	if supportID != nil && *supportID != 0 {
-		supportIDStr = fmt.Sprintf("%d", *supportID)
-	}
-
-	if shopName == "" {
-		shopName = "Не установлено"
-	}
-	if address == "" {
-		address = "Не установлен"
-	}
-	if kaspiLink == "" {
-		kaspiLink = "Не установлен"
-	}
-	if aboutChannelLink == "" {
-		aboutChannelLink = "Не установлен"
-	}
-
-	msg := fmt.Sprintf(
-		"⚙️ Текущие настройки:\n\n"+
-			"🏪 Название: %s\n"+
-			"📍 Адрес: %s\n"+
-			"👤 ID поддержки: %s\n"+
-			"💳 Kaspi Link: %s\n"+
-			"📢 Канал: %s",
-		shopName, address, supportIDStr, kaspiLink, aboutChannelLink)
+	text := fmt.Sprintf(
+		"⚙️ НАСТРОЙКИ САЛОНА\n\n"+
+			"Название: %s\n"+
+			"Адрес: %s\n"+
+			"📅 Рабочее время: %s - %s\n"+
+			"🔔 Напоминание за: %d ч\n"+
+			"💳 Предоплата: %d%%\n",
+		salonSettings["salon_name"], salonSettings["address"],
+		salonSettings["schedule_open"], salonSettings["schedule_close"],
+		salonSettings["reminder_hours"], salonSettings["prepay_percent"])
 
 	menu := &telebot.ReplyMarkup{}
 	menu.Inline(
 		menu.Row(
-			telebot.Btn{Text: "🏪 Название", Unique: "admin_set_name"},
-		),
-		menu.Row(
+			telebot.Btn{Text: "📝 Название", Unique: "admin_set_name"},
 			telebot.Btn{Text: "📍 Адрес", Unique: "admin_set_address"},
 		),
 		menu.Row(
-			telebot.Btn{Text: "👤 ID поддержки", Unique: "admin_set_support"},
+			telebot.Btn{Text: "🕐 Время открытия", Unique: "admin_set_open"},
+			telebot.Btn{Text: "🕐 Время закрытия", Unique: "admin_set_close"},
 		),
 		menu.Row(
-			telebot.Btn{Text: "💳 Kaspi Link", Unique: "admin_set_kaspi"},
+			telebot.Btn{Text: "🔔 Напоминание", Unique: "admin_set_reminder"},
+			telebot.Btn{Text: "💳 Предоплата %", Unique: "admin_set_prepay"},
 		),
 		menu.Row(
-			telebot.Btn{Text: "📢 Канал", Unique: "admin_set_channel"},
+			telebot.Btn{Text: "💬 Поддержка ID", Unique: "admin_set_support"},
+			telebot.Btn{Text: "🏠 Меню", Unique: "main_menu"},
 		),
 	)
 
-	return c.Edit(msg, &telebot.SendOptions{ParseMode: telebot.ModeHTML}, menu)
+	return c.Edit(text, menu)
 }
 
 // HandleAdminSetName начинает изменение названия
 func (ah *AdminHandler) HandleAdminSetName(c telebot.Context) error {
 	userID := c.Sender().ID
-	ah.stateManager.SetState(userID, models.StateAdminSetShopName)
 
-	menu := &telebot.ReplyMarkup{ForceReply: true}
-	return c.Edit("🏪 Введите новое название магазина:", menu)
-}
+	session := ah.stateManager.GetUserSession(userID)
+	session.State = models.StateAdminSetSalonName
+	ah.stateManager.SetUserSession(userID, session)
 
-// HandleAdminSetNameInput обрабатывает новое название
-func (ah *AdminHandler) HandleAdminSetNameInput(c telebot.Context) error {
-	ctx := context.Background()
-	userID := c.Sender().ID
-	text := c.Message().Text
-
-	if text == "" || len(text) < 2 {
-		return c.Send("❌ Пожалуйста, введите корректное название")
+	text := "📝 Введите новое название салона:"
+	msg, err := ah.bot.Send(c.Sender(), text)
+	if err == nil {
+		ah.stateManager.AddMessageToDelete(userID, msg.ID)
 	}
 
+	return err
+}
+
+// HandleAdminInputSalonName обрабатывает ввод названия
+func (ah *AdminHandler) HandleAdminInputSalonName(c telebot.Context) error {
+	ctx := context.Background()
+	userID := c.Sender().ID
+	name := strings.TrimSpace(c.Message().Text)
+
+	if len(name) < 2 || len(name) > 100 {
+		return c.Send("❌ Название должно быть от 2 до 100 символов")
+	}
+
+	// Обновляем в БД
 	_, err := ah.db.Exec(ctx,
-		`UPDATE shop_settings SET shop_name = $1`, text)
+		`UPDATE salon_settings SET salon_name = $1`, name)
 	if err != nil {
-		return c.Send("❌ Ошибка обновления")
+		log.Printf("❌ Ошибка обновления названия: %v\n", err)
+		return c.Send("❌ Ошибка при сохранении")
 	}
 
 	ah.stateManager.ResetState(userID)
-	return c.Send(fmt.Sprintf("✅ Название изменено на: %s", text))
+
+	text := fmt.Sprintf("✅ Название салона изменено на: %s", name)
+	return c.Send(text)
 }
 
-// HandleAdminSetAddress начинает изменение адреса
-func (ah *AdminHandler) HandleAdminSetAddress(c telebot.Context) error {
+// HandleAdminSetScheduleOpen начинает изменение времени открытия
+func (ah *AdminHandler) HandleAdminSetScheduleOpen(c telebot.Context) error {
 	userID := c.Sender().ID
-	ah.stateManager.SetState(userID, models.StateAdminSetAddress)
 
-	menu := &telebot.ReplyMarkup{ForceReply: true}
-	return c.Edit("📍 Введите новый адрес магазина:", menu)
-}
+	session := ah.stateManager.GetUserSession(userID)
+	session.State = models.StateAdminSetScheduleOpen
+	ah.stateManager.SetUserSession(userID, session)
 
-// HandleAdminSetAddressInput обрабатывает новый адрес
-func (ah *AdminHandler) HandleAdminSetAddressInput(c telebot.Context) error {
-	ctx := context.Background()
-	userID := c.Sender().ID
-	text := c.Message().Text
-
-	if text == "" || len(text) < 5 {
-		return c.Send("❌ Пожалуйста, введите полный адрес")
+	text := "🕐 Введите время открытия (формат: 10:00):"
+	msg, err := ah.bot.Send(c.Sender(), text)
+	if err == nil {
+		ah.stateManager.AddMessageToDelete(userID, msg.ID)
 	}
 
+	return err
+}
+
+// HandleAdminInputScheduleOpen обрабатывает ввод времени открытия
+func (ah *AdminHandler) HandleAdminInputScheduleOpen(c telebot.Context) error {
+	ctx := context.Background()
+	userID := c.Sender().ID
+	timeStr := strings.TrimSpace(c.Message().Text)
+
+	// Проверяем формат
+	if !isValidTimeFormat(timeStr) {
+		return c.Send("❌ Неверный формат. Используйте: 10:00")
+	}
+
+	// Обновляем в БД
 	_, err := ah.db.Exec(ctx,
-		`UPDATE shop_settings SET address = $1`, text)
+		`UPDATE salon_settings SET schedule_open = $1`, timeStr)
 	if err != nil {
-		return c.Send("❌ Ошибка обновления")
+		log.Printf("❌ Ошибка обновления времени: %v\n", err)
+		return c.Send("❌ Ошибка при сохранении")
 	}
 
 	ah.stateManager.ResetState(userID)
-	return c.Send(fmt.Sprintf("✅ Адрес изменено на: %s", text))
+
+	text := fmt.Sprintf("✅ Время открытия установлено: %s", timeStr)
+	return c.Send(text)
 }
 
-// HandleAdminSetSupport начинает изменение ID поддержки
-func (ah *AdminHandler) HandleAdminSetSupport(c telebot.Context) error {
+// HandleAdminSetScheduleClose начинает изменение времени закрытия
+func (ah *AdminHandler) HandleAdminSetScheduleClose(c telebot.Context) error {
 	userID := c.Sender().ID
-	ah.stateManager.SetState(userID, models.StateAdminSetSupportID)
 
-	menu := &telebot.ReplyMarkup{ForceReply: true}
-	return c.Send("👤 Введите Telegram ID пользователя поддержки:", menu)
-}
+	session := ah.stateManager.GetUserSession(userID)
+	session.State = models.StateAdminSetScheduleClose
+	ah.stateManager.SetUserSession(userID, session)
 
-// HandleAdminSetSupportInput обрабатывает новый ID поддержки
-func (ah *AdminHandler) HandleAdminSetSupportInput(c telebot.Context) error {
-	ctx := context.Background()
-	userID := c.Sender().ID
-	text := c.Message().Text
-
-	supportID, err := strconv.ParseInt(text, 10, 64)
-	if err != nil {
-		return c.Send("❌ Пожалуйста, введите корректный Telegram ID")
+	text := "🕐 Введите время закрытия (формат: 20:00):"
+	msg, err := ah.bot.Send(c.Sender(), text)
+	if err == nil {
+		ah.stateManager.AddMessageToDelete(userID, msg.ID)
 	}
 
+	return err
+}
+
+// HandleAdminSetReminderHours начинает изменение напоминания
+func (ah *AdminHandler) HandleAdminSetReminderHours(c telebot.Context) error {
+	userID := c.Sender().ID
+
+	session := ah.stateManager.GetUserSession(userID)
+	session.State = models.StateAdminSetReminderHours
+	ah.stateManager.SetUserSession(userID, session)
+
+	text := "🔔 Введите за сколько часов отправлять напоминание (1-24):"
+	msg, err := ah.bot.Send(c.Sender(), text)
+	if err == nil {
+		ah.stateManager.AddMessageToDelete(userID, msg.ID)
+	}
+
+	return err
+}
+
+// HandleAdminInputReminderHours обрабатывает ввод часов напоминания
+func (ah *AdminHandler) HandleAdminInputReminderHours(c telebot.Context) error {
+	ctx := context.Background()
+	userID := c.Sender().ID
+	input := strings.TrimSpace(c.Message().Text)
+
+	hours := 0
+	_, err := fmt.Sscanf(input, "%d", &hours)
+	if err != nil || hours < 1 || hours > 24 {
+		return c.Send("❌ Введите число от 1 до 24")
+	}
+
+	// Обновляем в БД
 	_, err = ah.db.Exec(ctx,
-		`UPDATE shop_settings SET support_user_id = $1`, supportID)
+		`UPDATE salon_settings SET reminder_hours = $1`, hours)
 	if err != nil {
-		return c.Send("❌ Ошибка обновления")
+		log.Printf("❌ Ошибка обновления напоминания: %v\n", err)
+		return c.Send("❌ Ошибка при сохранении")
 	}
 
 	ah.stateManager.ResetState(userID)
-	return c.Send(fmt.Sprintf("✅ ID поддержки изменено на: %d", supportID))
+
+	text := fmt.Sprintf("✅ Напоминание установлено за %d ч перед записью", hours)
+	return c.Send(text)
 }
 
-// HandleAdminSetKaspi начинает изменение Kaspi ссылки
-func (ah *AdminHandler) HandleAdminSetKaspi(c telebot.Context) error {
+// HandleAdminSetPrepayPercent начинает изменение % предоплаты
+func (ah *AdminHandler) HandleAdminSetPrepayPercent(c telebot.Context) error {
 	userID := c.Sender().ID
-	ah.stateManager.SetState(userID, models.StateAdminSetKaspiLink)
 
-	menu := &telebot.ReplyMarkup{ForceReply: true}
-	return c.Send("💳 Введите ссылку на оплату магазина (Kaspi):", menu)
-}
+	session := ah.stateManager.GetUserSession(userID)
+	session.State = models.StateAdminSetPrepayPercent
+	ah.stateManager.SetUserSession(userID, session)
 
-// HandleAdminSetKaspiInput обрабатывает новую Kaspi ссылку
-func (ah *AdminHandler) HandleAdminSetKaspiInput(c telebot.Context) error {
-	ctx := context.Background()
-	userID := c.Sender().ID
-	text := c.Message().Text
-
-	if text == "" || len(text) < 5 {
-		return c.Send("❌ Пожалуйста, введите корректную ссылку")
+	text := "💳 Введите % предоплаты (0 для отключения, 1-100):"
+	msg, err := ah.bot.Send(c.Sender(), text)
+	if err == nil {
+		ah.stateManager.AddMessageToDelete(userID, msg.ID)
 	}
 
-	_, err := ah.db.Exec(ctx,
-		`UPDATE shop_settings SET kaspi_link = $1`, text)
+	return err
+}
+
+// HandleAdminInputPrepayPercent обрабатывает ввод % предоплаты
+func (ah *AdminHandler) HandleAdminInputPrepayPercent(c telebot.Context) error {
+	ctx := context.Background()
+	userID := c.Sender().ID
+	input := strings.TrimSpace(c.Message().Text)
+
+	percent := 0
+	_, err := fmt.Sscanf(input, "%d", &percent)
+	if err != nil || percent < 0 || percent > 100 {
+		return c.Send("❌ Введите число от 0 до 100")
+	}
+
+	// Обновляем в БД
+	_, err = ah.db.Exec(ctx,
+		`UPDATE salon_settings SET prepay_percent = $1`, percent)
 	if err != nil {
-		return c.Send("❌ Ошибка обновления")
+		log.Printf("❌ Ошибка обновления предоплаты: %v\n", err)
+		return c.Send("❌ Ошибка при сохранении")
 	}
 
 	ah.stateManager.ResetState(userID)
-	return c.Send("✅ Kaspi ссылка обновлена")
-}
 
-// HandleAdminSetChannel начинает изменение ссылки на канал
-func (ah *AdminHandler) HandleAdminSetChannel(c telebot.Context) error {
-	userID := c.Sender().ID
-	ah.stateManager.SetState(userID, models.StateAdminSetChannelLink)
-
-	menu := &telebot.ReplyMarkup{ForceReply: true}
-	return c.Send("📢 Введите ссылку на канал 'О нас':", menu)
-}
-
-// HandleAdminSetChannelInput обрабатывает новую ссылку на канал
-func (ah *AdminHandler) HandleAdminSetChannelInput(c telebot.Context) error {
-	ctx := context.Background()
-	userID := c.Sender().ID
-	text := c.Message().Text
-
-	if text == "" || len(text) < 5 {
-		return c.Send("❌ Пожалуйста, введите корректную ссылку")
+	status := "отключена"
+	if percent > 0 {
+		status = fmt.Sprintf("установлена на %d%%", percent)
 	}
-
-	_, err := ah.db.Exec(ctx,
-		`UPDATE shop_settings SET about_channel_link = $1`, text)
-	if err != nil {
-		return c.Send("❌ Ошибка обновления")
-	}
-
-	ah.stateManager.ResetState(userID)
-	return c.Send("✅ Ссылка на канал обновлена")
+	text := fmt.Sprintf("✅ Предоплата %s", status)
+	return c.Send(text)
 }
 
-// ========== СТАТИСТИКА ==========
-
-// HandleAdminStats показывает статистику
-func (ah *AdminHandler) HandleAdminStats(c telebot.Context) error {
-	ctx := context.Background()
-
-	// Всего заказов
-	totalRow := ah.db.QueryRow(ctx, "SELECT COUNT(*) FROM orders")
-	var total int
-	totalRow.Scan(&total)
-
-	// Выполнено
-	completeRow := ah.db.QueryRow(ctx,
-		"SELECT COUNT(*) FROM orders WHERE status = $1", models.OrderStatusCompleted)
-	var completed int
-	completeRow.Scan(&completed)
-
-	// Отменено
-	cancelledRow := ah.db.QueryRow(ctx,
-		"SELECT COUNT(*) FROM orders WHERE status = $1", models.OrderStatusCancelled)
-	var cancelled int
-	cancelledRow.Scan(&cancelled)
-
-	// Активных
-	activeRow := ah.db.QueryRow(ctx,
-		`SELECT COUNT(*) FROM orders WHERE status != $1 AND status != $2`,
-		models.OrderStatusCompleted, models.OrderStatusCancelled)
-	var active int
-	activeRow.Scan(&active)
-
-	// Сумма выполненных
-	sumRow := ah.db.QueryRow(ctx,
-		"SELECT COALESCE(SUM(amount), 0) FROM orders WHERE status = $1",
-		models.OrderStatusCompleted)
-	var totalSum float64
-	sumRow.Scan(&totalSum)
-
-	msg := fmt.Sprintf(
-		"📊 Статистика:\n\n"+
-			"📦 Всего заказов: %d\n"+
-			"✅ Выполнено: %d\n"+
-			"❌ Отменено: %d\n"+
-			"🟡 Активных: %d\n"+
-			"💰 Выручка: %g тг",
-		total, completed, cancelled, active, totalSum)
-
-	return c.Edit(msg, &telebot.SendOptions{ParseMode: telebot.ModeHTML})
+// Helper function
+func isValidTimeFormat(timeStr string) bool {
+	if len(timeStr) != 5 || timeStr[2] != ':' {
+		return false
+	}
+	h, m := 0, 0
+	n, _ := fmt.Sscanf(timeStr, "%d:%d", &h, &m)
+	return n == 2 && h >= 0 && h < 24 && m >= 0 && m < 60
 }

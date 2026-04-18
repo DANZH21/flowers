@@ -7,43 +7,46 @@ type State int
 
 const (
 	StateNone State = iota
+	// Запись на услугу
+	StateAwaitingServiceSelection
+	StateAwaitingDateSelection
+	StateAwaitingTimeSelection
 	StateAwaitingName
 	StateAwaitingPhone
-	StateAwaitingDate
-	StateAwaitingAddress
+	StateAwaitingPaymentMethod
 	StateAwaitingReceipt
-	StateAwaitingCustomBouquet
-	StateAwaitingCustomBouquetPhoto
-	StateAdminSetPrice
+	// Админ - управление услугами
+	StateAdminAddServiceName
+	StateAdminAddServiceDesc
+	StateAdminAddServicePrice
+	StateAdminAddServiceDuration
+	// Админ - настройки
+	StateAdminSetScheduleOpen
+	StateAdminSetScheduleClose
+	StateAdminSetReminderHours
+	StateAdminSetPrepayPercent
 	StateAdminSetSupportID
 	StateAdminSetKaspiLink
 	StateAdminSetChannelLink
-	StateAdminSetShopName
+	StateAdminSetSalonName
 	StateAdminSetAddress
-	StateAdminAddBouquetName
-	StateAdminAddBouquetDesc
-	StateAdminAddBouquetPrice
-	StateAdminAddBouquetQty
-	StateAdminAddBouquetPhoto
 )
 
-// OrderDraft - черновик заказа
-type OrderDraft struct {
-	BouquetID    int
-	DeliveryType string // "delivery" или "pickup"
-	DeliveryDate string // "2024-12-25" формат
-	PaymentType  string // "kaspi" или "cash"
-	Name         string
-	Phone        string
-	Address      string
-	Amount       float64
+// AppointmentDraft - черновик записи на услугу
+type AppointmentDraft struct {
+	ServiceID       int
+	AppointmentDate string // "2024-12-25" формат
+	AppointmentTime string // "14:30" формат
+	PaymentType     string // "kaspi" или "cash"
+	Name            string
+	Phone           string
+	Amount          float64
 }
 
 // UserSession - сессия пользователя с его состоянием
 type UserSession struct {
 	State            State
-	OrderDraft       OrderDraft
-	CustomDraft      string
+	AppointmentDraft AppointmentDraft
 	TempData         string
 	MessageIDs       []int // ID сообщений для удаления
 	FullName         string
@@ -53,83 +56,59 @@ type UserSession struct {
 	CreatedAt        time.Time
 }
 
-// ShopSettings - настройки магазина
-type ShopSettings struct {
+// SalonSettings - настройки салона красоты
+type SalonSettings struct {
 	ID               int
-	ShopName         string
+	SalonName        string
 	Address          string
 	SupportUserID    *int64
 	KaspiLink        string
 	AboutChannelLink string
+	ScheduleOpen     string // "10:00"
+	ScheduleClose    string // "20:00"
+	ReminderHours    int    // За сколько часов отправлять напоминание (1-24)
+	PrepayPercent    int    // % предоплаты (0-100, 0 = отключена)
 	CreatedAt        time.Time
 }
 
-// Bouquet - букет в каталоге
-type Bouquet struct {
-	ID            int
-	Name          string
-	Description   string
-	Price         float64
-	PhotoURLs     []string
-	Quantity      int
-	IsAvailable   bool
-	ReservedUntil *time.Time
-	ReservedBy    *int64
-	CreatedAt     time.Time
+// Service - услуга в салоне
+type Service struct {
+	ID          int
+	Name        string
+	Description string
+	Price       float64
+	DurationMin int // длительность в минутах
+	IsAvailable bool
+	CreatedAt   time.Time
 }
 
-// Order - заказ
-type Order struct {
+// Appointment - запись на услугу
+type Appointment struct {
 	ID              int
-	OrderNumber     int
+	AppointmentNum  int
 	UserID          int64
-	BouquetID       *int
-	CustomOrderID   *int
-	DeliveryType    string // "delivery" или "pickup"
-	PaymentType     string // "kaspi" или "cash"
+	ServiceID       int
+	AppointmentTime time.Time // полная дата + время
+	PaymentType     string    // "kaspi" или "cash"
 	Amount          float64
 	PrepayAmount    *float64
 	CustomerName    string
 	CustomerPhone   string
-	DeliveryAddress *string
-	Status          string // pending, confirmed, delivering, completed, cancelled
+	Status          string // scheduled, confirmed, completed, cancelled, no_show
 	ReceiptURL      *string
 	ReceiptDeadline *time.Time
+	ReminderSent    bool
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }
 
-// CustomOrder - кастомный букет
-type CustomOrder struct {
-	ID          int
-	UserID      int64
-	Description string
-	AdminPrice  *float64
-	Status      string // pending, accepted, rejected, paid
-	CreatedAt   time.Time
-}
-
-// OrderStatus constants
+// AppointmentStatus constants
 const (
-	OrderStatusPending    = "pending"
-	OrderStatusConfirmed  = "confirmed"
-	OrderStatusDelivering = "delivering"
-	OrderStatusCompleted  = "completed"
-	OrderStatusCancelled  = "cancelled"
-)
-
-// CustomOrderStatus constants
-const (
-	CustomOrderStatusPending  = "pending"
-	CustomOrderStatusAccepted = "accepted"
-	CustomOrderStatusRejected = "rejected"
-	CustomOrderStatusPaid     = "paid"
-)
-
-// DeliveryType constants
-const (
-	DeliveryTypeDelivery = "delivery"
-	DeliveryTypePickup   = "pickup"
+	AppointmentStatusScheduled = "scheduled"
+	AppointmentStatusConfirmed = "confirmed"
+	AppointmentStatusCompleted = "completed"
+	AppointmentStatusCancelled = "cancelled"
+	AppointmentStatusNoShow    = "no_show"
 )
 
 // PaymentType constants

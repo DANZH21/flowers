@@ -12,14 +12,18 @@ func (d *Database) RunMigrations(ctx context.Context, cfg *config.Config) error 
 	log.Println("🔧 Запуск миграций...")
 
 	migrations := []string{
-		// Настройки магазина
-		`CREATE TABLE IF NOT EXISTS shop_settings (
+		// Настройки салона
+		`CREATE TABLE IF NOT EXISTS salon_settings (
 			id SERIAL PRIMARY KEY,
-			shop_name TEXT NOT NULL DEFAULT '',
+			salon_name TEXT NOT NULL DEFAULT '',
 			address TEXT NOT NULL DEFAULT '',
 			support_user_id BIGINT,
 			kaspi_link TEXT NOT NULL DEFAULT '',
 			about_channel_link TEXT NOT NULL DEFAULT '',
+			schedule_open TEXT NOT NULL DEFAULT '10:00',
+			schedule_close TEXT NOT NULL DEFAULT '20:00',
+			reminder_hours INT NOT NULL DEFAULT 1,
+			prepay_percent INT NOT NULL DEFAULT 0,
 			created_at TIMESTAMPTZ DEFAULT NOW()
 		)`,
 
@@ -34,69 +38,44 @@ func (d *Database) RunMigrations(ctx context.Context, cfg *config.Config) error 
 			created_at TIMESTAMPTZ DEFAULT NOW()
 		)`,
 
-		// Букеты каталога
-		`CREATE TABLE IF NOT EXISTS bouquets (
+		// Услуги в салоне
+		`CREATE TABLE IF NOT EXISTS services (
 			id SERIAL PRIMARY KEY,
 			name TEXT NOT NULL,
 			description TEXT,
 			price NUMERIC(10,2) NOT NULL,
-			photo_urls TEXT[] DEFAULT '{}',
-			quantity INT NOT NULL DEFAULT 1,
+			duration_min INT NOT NULL DEFAULT 30,
 			is_available BOOLEAN DEFAULT TRUE,
-			reserved_until TIMESTAMPTZ,
-			reserved_by BIGINT,
 			created_at TIMESTAMPTZ DEFAULT NOW()
 		)`,
 
-		// Заказы
-		`CREATE TABLE IF NOT EXISTS orders (
+		// Записи на услуги
+		`CREATE TABLE IF NOT EXISTS appointments (
 			id SERIAL PRIMARY KEY,
-			order_number SERIAL,
+			appointment_num SERIAL,
 			user_id BIGINT NOT NULL REFERENCES users(telegram_id),
-			bouquet_id INT REFERENCES bouquets(id),
-			custom_order_id INT,
-			delivery_type TEXT NOT NULL,
+			service_id INT NOT NULL REFERENCES services(id),
+			appointment_time TIMESTAMPTZ NOT NULL,
 			payment_type TEXT NOT NULL,
 			amount NUMERIC(10,2) NOT NULL,
 			prepay_amount NUMERIC(10,2),
 			customer_name TEXT,
 			customer_phone TEXT,
-			delivery_address TEXT,
-			status TEXT NOT NULL DEFAULT 'pending',
+			status TEXT NOT NULL DEFAULT 'scheduled',
 			receipt_url TEXT,
-			receipt_type TEXT DEFAULT 'text',
 			receipt_deadline TIMESTAMPTZ,
+			reminder_sent BOOLEAN DEFAULT FALSE,
 			created_at TIMESTAMPTZ DEFAULT NOW(),
 			updated_at TIMESTAMPTZ DEFAULT NOW()
 		)`,
 
-		// Кастомные букеты
-		`CREATE TABLE IF NOT EXISTS custom_orders (
-			id SERIAL PRIMARY KEY,
-			user_id BIGINT NOT NULL REFERENCES users(telegram_id),
-			description TEXT NOT NULL,
-			photo_url TEXT,
-			admin_price NUMERIC(10,2),
-			status TEXT DEFAULT 'pending',
-			created_at TIMESTAMPTZ DEFAULT NOW()
-		)`,
-
 		// Индексы для оптимизации запросов
-		`CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)`,
-		`CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at)`,
-		`CREATE INDEX IF NOT EXISTS idx_custom_orders_user_id ON custom_orders(user_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_bouquets_available ON bouquets(is_available)`,
+		`CREATE INDEX IF NOT EXISTS idx_appointments_user_id ON appointments(user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_appointments_time ON appointments(appointment_time)`,
+		`CREATE INDEX IF NOT EXISTS idx_appointments_service_id ON appointments(service_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_services_available ON services(is_available)`,
 		`CREATE INDEX IF NOT EXISTS idx_users_is_admin ON users(is_admin)`,
-
-		// Миграция photo_url -> photo_urls
-		`ALTER TABLE bouquets ADD COLUMN IF NOT EXISTS photo_urls TEXT[] DEFAULT '{}'`,
-
-		// Добавляем колонку receipt_type если её нет
-		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_type TEXT DEFAULT 'text'`,
-
-		// Добавляем колонку photo_url для кастомных букетов если её нет
-		`ALTER TABLE custom_orders ADD COLUMN IF NOT EXISTS photo_url TEXT`,
 	}
 
 	for _, migration := range migrations {
@@ -108,31 +87,31 @@ func (d *Database) RunMigrations(ctx context.Context, cfg *config.Config) error 
 
 	log.Println("✅ Миграции выполнены успешно")
 
-	// Инициализируем shop_settings если они не существуют
-	row := d.pool.QueryRow(ctx, "SELECT COUNT(*) FROM shop_settings")
+	// Инициализируем salon_settings если они не существуют
+	row := d.pool.QueryRow(ctx, "SELECT COUNT(*) FROM salon_settings")
 	var count int
 	if err := row.Scan(&count); err != nil {
 		return err
 	}
 
 	if count == 0 {
-		shopName := cfg.ShopName
-		if shopName == "" {
-			shopName = "Flower Shop"
+		salonName := cfg.ShopName
+		if salonName == "" {
+			salonName = "Beauty Salon"
 		}
-		shopAddress := cfg.ShopAddress
-		if shopAddress == "" {
-			shopAddress = "Almaty, Kazakhstan"
+		salonAddress := cfg.ShopAddress
+		if salonAddress == "" {
+			salonAddress = "Almaty, Kazakhstan"
 		}
 		_, err := d.pool.Exec(ctx,
-			`INSERT INTO shop_settings (shop_name, address, support_user_id, kaspi_link, about_channel_link)
-			VALUES ($1, $2, $3, $4, $5)`,
-			shopName, shopAddress, cfg.SupportUserID, cfg.KaspiLink, cfg.AboutChannelLink)
+			`INSERT INTO salon_settings (salon_name, address, support_user_id, kaspi_link, about_channel_link, schedule_open, schedule_close, reminder_hours, prepay_percent)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+			salonName, salonAddress, cfg.SupportUserID, cfg.KaspiLink, cfg.AboutChannelLink, "10:00", "20:00", 1, 0)
 		if err != nil {
-			log.Printf("❌ Ошибка инициализации shop_settings: %v\n", err)
+			log.Printf("❌ Ошибка инициализации salon_settings: %v\n", err)
 			return err
 		}
-		log.Println("✅ shop_settings инициализированы")
+		log.Println("✅ salon_settings инициализированы")
 	}
 
 	return nil

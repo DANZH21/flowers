@@ -73,27 +73,33 @@ func (d *Database) BeginTx(ctx context.Context) (pgx.Tx, error) {
 	return d.pool.Begin(ctx)
 }
 
-// GetShopSettings получает настройки магазина из БД
-func (d *Database) GetShopSettings(ctx context.Context) (map[string]interface{}, error) {
+// GetSalonSettings получает настройки салона из БД
+func (d *Database) GetSalonSettings(ctx context.Context) (map[string]interface{}, error) {
 	row := d.pool.QueryRow(ctx, `
 		SELECT 
-			id, shop_name, address, support_user_id, kaspi_link, about_channel_link
-		FROM shop_settings LIMIT 1
+			id, salon_name, address, support_user_id, kaspi_link, about_channel_link,
+			schedule_open, schedule_close, reminder_hours, prepay_percent
+		FROM salon_settings LIMIT 1
 	`)
 
-	var id int
-	var shopName, address, kaspiLink, aboutChannelLink string
+	var id, reminderHours, prepayPercent int
+	var salonName, address, kaspiLink, aboutChannelLink, scheduleOpen, scheduleClose string
 	var supportUserID *int64
 
-	if err := row.Scan(&id, &shopName, &address, &supportUserID, &kaspiLink, &aboutChannelLink); err != nil {
+	if err := row.Scan(&id, &salonName, &address, &supportUserID, &kaspiLink, &aboutChannelLink,
+		&scheduleOpen, &scheduleClose, &reminderHours, &prepayPercent); err != nil {
 		return nil, err
 	}
 
 	return map[string]interface{}{
-		"shop_name":          shopName,
+		"salon_name":         salonName,
 		"address":            address,
 		"support_user_id":    supportUserID,
 		"kaspi_link":         kaspiLink,
 		"about_channel_link": aboutChannelLink,
+		"schedule_open":      scheduleOpen,
+		"schedule_close":     scheduleClose,
+		"reminder_hours":     reminderHours,
+		"prepay_percent":     prepayPercent,
 	}, nil
 }

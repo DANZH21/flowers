@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"sync"
+	"time"
 
 	"flower-bot/models"
 )
@@ -31,8 +32,38 @@ func (sm *StateManager) GetSession(userID int64) *models.UserSession {
 	return session
 }
 
+// GetUserSession получает сессию пользователя (alias для GetSession)
+func (sm *StateManager) GetUserSession(userID int64) *models.UserSession {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	session, exists := sm.sessions[userID]
+	if !exists {
+		session = &models.UserSession{
+			State:            models.StateNone,
+			AppointmentDraft: models.AppointmentDraft{},
+			TempData:         "",
+			MessageIDs:       []int{},
+			FullName:         "",
+			Phone:            "",
+			IsAdmin:          false,
+			LastOrderAttempt: nil,
+			CreatedAt:        time.Now(),
+		}
+		sm.sessions[userID] = session
+	}
+	return session
+}
+
 // SetSession устанавливает сессию пользователя
 func (sm *StateManager) SetSession(userID int64, session *models.UserSession) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.sessions[userID] = session
+}
+
+// SetUserSession устанавливает сессию пользователя (alias для SetSession)
+func (sm *StateManager) SetUserSession(userID int64, session *models.UserSession) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.sessions[userID] = session
@@ -61,56 +92,6 @@ func (sm *StateManager) SetState(userID int64, state models.State) {
 		sm.sessions[userID] = session
 	}
 	session.State = state
-}
-
-// GetOrderDraft получает черновик заказа
-func (sm *StateManager) GetOrderDraft(userID int64) *models.OrderDraft {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-
-	session, exists := sm.sessions[userID]
-	if !exists {
-		return nil
-	}
-	return &session.OrderDraft
-}
-
-// SetOrderDraft устанавливает черновик заказа
-func (sm *StateManager) SetOrderDraft(userID int64, draft models.OrderDraft) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-
-	session, exists := sm.sessions[userID]
-	if !exists {
-		session = &models.UserSession{}
-		sm.sessions[userID] = session
-	}
-	session.OrderDraft = draft
-}
-
-// GetCustomDraft получает текст кастомного букета
-func (sm *StateManager) GetCustomDraft(userID int64) string {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-
-	session, exists := sm.sessions[userID]
-	if !exists {
-		return ""
-	}
-	return session.CustomDraft
-}
-
-// SetCustomDraft устанавливает текст кастомного букета
-func (sm *StateManager) SetCustomDraft(userID int64, draft string) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-
-	session, exists := sm.sessions[userID]
-	if !exists {
-		session = &models.UserSession{}
-		sm.sessions[userID] = session
-	}
-	session.CustomDraft = draft
 }
 
 // GetTempData получает временные данные
@@ -170,37 +151,36 @@ func (sm *StateManager) ResetState(userID int64) {
 		sm.sessions[userID] = session
 	}
 	session.State = models.StateNone
-	session.OrderDraft = models.OrderDraft{}
-	session.CustomDraft = ""
+	session.AppointmentDraft = models.AppointmentDraft{}
 	session.TempData = ""
 }
 
 // AddMessageToDelete добавляет ID сообщения в список на удаление
 func (sm *StateManager) AddMessageToDelete(userID int64, msgID int) {
-sm.mu.Lock()
-defer sm.mu.Unlock()
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
 
-session, exists := sm.sessions[userID]
-if !exists {
-session = &models.UserSession{}
-sm.sessions[userID] = session
-}
-session.MessageIDs = append(session.MessageIDs, msgID)
+	session, exists := sm.sessions[userID]
+	if !exists {
+		session = &models.UserSession{}
+		sm.sessions[userID] = session
+	}
+	session.MessageIDs = append(session.MessageIDs, msgID)
 }
 
 // ClearMessagesToDelete возвращает и очищает список сообщений на удаление
 func (sm *StateManager) ClearMessagesToDelete(userID int64) []int {
-sm.mu.Lock()
-defer sm.mu.Unlock()
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
 
-session, exists := sm.sessions[userID]
-if !exists {
-return nil
-}
+	session, exists := sm.sessions[userID]
+	if !exists {
+		return nil
+	}
 
-msgIDs := session.MessageIDs
-session.MessageIDs = nil
-return msgIDs
+	msgIDs := session.MessageIDs
+	session.MessageIDs = nil
+	return msgIDs
 }
 
 // AddMessageToDelete добавляет ID сообщений в список для последующего удаления

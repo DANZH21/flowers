@@ -13,7 +13,7 @@ import (
 	"gopkg.in/telebot.v3"
 )
 
-// Scheduler управляет таймерами для зарезервирования, чеков и антиспама
+// Scheduler управляет таймерами для записей и напоминаний
 type Scheduler struct {
 	timers map[string]*time.Timer
 	mu     sync.Mutex
@@ -30,9 +30,26 @@ func NewScheduler(database *db.Database, bot *telebot.Bot) *Scheduler {
 	}
 }
 
-// ScheduleReservationExpiry расписывает снятие резерва через 30 минут
-func (s *Scheduler) ScheduleReservationExpiry(bouquetID int, userID int64, duration time.Duration) {
-	key := fmt.Sprintf("reserve_%d", bouquetID)
+// ScheduleAppointmentReminder расписывает напоминание о записи
+func (s *Scheduler) ScheduleAppointmentReminder(appointmentID int, userID int64, appointmentTime time.Time) {
+	key := fmt.Sprintf("reminder_%d", appointmentID)
+
+	// Получаем настройки напоминания
+	ctx := context.Background()
+	salonSettings, err := s.db.GetSalonSettings(ctx)
+	if err != nil {
+		log.Printf("❌ Ошибка получения настроек: %v\n", err)
+		return
+	}
+
+	reminderHours := salonSettings["reminder_hours"].(int)
+	reminderTime := appointmentTime.Add(-time.Duration(reminderHours) * time.Hour)
+	duration := time.Until(reminderTime)
+
+	if duration <= 0 {
+		// Запись уже прошла или время напоминания истекло
+		return
+	}
 
 	// Отменяем предыдущий таймер если есть
 	s.CancelTimer(key)
@@ -41,23 +58,44 @@ func (s *Scheduler) ScheduleReservationExpiry(bouquetID int, userID int64, durat
 	s.timers[key] = time.AfterFunc(duration, func() {
 		ctx := context.Background()
 
-		// Снимаем резерв (quantity не трогаем - отсчёт только при подтверждении админом)
-		_, err := s.db.Exec(ctx,
-			`UPDATE bouquets SET reserved_by = NULL, reserved_until = NULL WHERE id = $1`,
-			bouquetID)
-		if err != nil {
-			log.Printf("❌ Ошибка снятия резерва букета %d: %v\n", bouquetID, err)
+		// Получаем информацию о записи
+		row := s.db.QueryRow(ctx,
+			`SELECT a.id, a.appointment_num, s.name, a.appointment_time, a.customer_name
+			FROM appointments a
+			JOIN services s ON a.service_id = s.id
+			WHERE a.id = $1`, appointmentID)
+
+		var id, appointmentNum int
+		var serviceName, customerName string
+		var apptTime time.Time
+
+		if err := row.Scan(&id, &appointmentNum, &serviceName, &apptTime, &customerName); err != nil {
+			log.Printf("❌ Ошибка получения записи: %v\n", err)
 			return
 		}
 
-		// Уведомляем пользователя
+		// Отправляем напоминание
 		user := &telebot.User{ID: userID}
-		msg := "⏳ Время резерва букета вышло. Букет возвращён в каталог."
+		msg := fmt.Sprintf(
+			"🔔 Напоминание о вашей записи!\n\n"+
+				"#%d\n"+
+				"💅 %s\n"+
+				"📅 %s\n\n"+
+				"Вы готовы к визиту? ✅",
+			appointmentNum, serviceName, apptTime.Format("02 Jan 15:04"))
+
 		if _, err := s.bot.Send(user, msg); err != nil {
-			log.Printf("❌ Ошибка отправки сообщения пользователю %d: %v\n", userID, err)
+			log.Printf("❌ Ошибка отправки напоминания пользователю %d: %v\n", userID, err)
 		}
 
-		log.Printf("✅ Резерв букета %d снят\n", bouquetID)
+		// Обновляем флаг напоминания
+		_, err := s.db.Exec(ctx,
+			`UPDATE appointments SET reminder_sent = true WHERE id = $1`, appointmentID)
+		if err != nil {
+			log.Printf("❌ Ошибка обновления флага напоминания: %v\n", err)
+		}
+
+		log.Printf("✅ Напоминание отправлено для записи %d\n", appointmentID)
 
 		// Удаляем таймер из памяти
 		s.mu.Lock()
@@ -66,12 +104,12 @@ func (s *Scheduler) ScheduleReservationExpiry(bouquetID int, userID int64, durat
 	})
 	s.mu.Unlock()
 
-	log.Printf("⏲️ Расписан таймер резерва на букет %d на %v\n", bouquetID, duration)
+	log.Printf("⏲️ Напоминание расписано для записи %d на %d часов до начала\n", appointmentID, reminderHours)
 }
 
 // ScheduleReceiptDeadline расписывает дедлайн на получение чека (30 минут)
-func (s *Scheduler) ScheduleReceiptDeadline(orderID int, userID int64, duration time.Duration) {
-	key := fmt.Sprintf("receipt_%d", orderID)
+func (s *Scheduler) ScheduleReceiptDeadline(appointmentID int, userID int64, duration time.Duration) {
+	key := fmt.Sprintf("receipt_%d", appointmentID)
 
 	// Отменяем предыдущий таймер если есть
 	s.CancelTimer(key)
@@ -80,45 +118,23 @@ func (s *Scheduler) ScheduleReceiptDeadline(orderID int, userID int64, duration 
 	s.timers[key] = time.AfterFunc(duration, func() {
 		ctx := context.Background()
 
-		// Получаем информацию о заказе
-		row := s.db.QueryRow(ctx,
-			`SELECT bouquet_id, amount FROM orders WHERE id = $1`,
-			orderID)
-
-		var bouquetID *int
-		var amount float64
-		if err := row.Scan(&bouquetID, &amount); err != nil {
-			log.Printf("❌ Ошибка получения заказа %d: %v\n", orderID, err)
-			return
-		}
-
-		// Отменяем заказ
+		// Отменяем запись
 		_, err := s.db.Exec(ctx,
-			`UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2`,
-			models.OrderStatusCancelled, orderID)
+			`UPDATE appointments SET status = $1, updated_at = NOW() WHERE id = $2`,
+			models.AppointmentStatusCancelled, appointmentID)
 		if err != nil {
-			log.Printf("❌ Ошибка отмены заказа %d: %v\n", orderID, err)
+			log.Printf("❌ Ошибка отмены записи %d: %v\n", appointmentID, err)
 			return
-		}
-
-		// Возвращаем букет в каталог если был резерв (снимаем флаги, quantity не трогаем)
-		if bouquetID != nil && *bouquetID > 0 {
-			_, err := s.db.Exec(ctx,
-				`UPDATE bouquets SET reserved_by = NULL, reserved_until = NULL WHERE id = $1`,
-				*bouquetID)
-			if err != nil {
-				log.Printf("❌ Ошибка возврата букета %d: %v\n", *bouquetID, err)
-			}
 		}
 
 		// Уведомляем пользователя
 		user := &telebot.User{ID: userID}
-		msg := fmt.Sprintf("❌ Заказ #%d автоматически отменён: время на отправку чека вышло (30 минут).", orderID)
+		msg := fmt.Sprintf("❌ Запись автоматически отменена: время на отправку чека вышло (30 минут).")
 		if _, err := s.bot.Send(user, msg); err != nil {
 			log.Printf("❌ Ошибка отправки сообщения пользователю %d: %v\n", userID, err)
 		}
 
-		log.Printf("✅ Заказ %d отменён по истечению времени чека\n", orderID)
+		log.Printf("✅ Запись %d отменена по истечению времени чека\n", appointmentID)
 
 		// Удаляем таймер из памяти
 		s.mu.Lock()
@@ -127,7 +143,7 @@ func (s *Scheduler) ScheduleReceiptDeadline(orderID int, userID int64, duration 
 	})
 	s.mu.Unlock()
 
-	log.Printf("⏲️ Расписан дедлайн на чек для заказа %d на %v\n", orderID, duration)
+	log.Printf("⏲️ Дедлайн на чек расписан для записи %d на %v\n", appointmentID, duration)
 }
 
 // CancelTimer отменяет таймер по ключу
@@ -142,14 +158,10 @@ func (s *Scheduler) CancelTimer(key string) {
 	}
 }
 
-// CancelOrderTimer отменяет все таймеры связанные с заказом
-func (s *Scheduler) CancelOrderTimer(orderID int) {
-	s.CancelTimer(fmt.Sprintf("receipt_%d", orderID))
-}
-
-// CancelBouquetTimer отменяет таймер резерва букета
-func (s *Scheduler) CancelBouquetTimer(bouquetID int) {
-	s.CancelTimer(fmt.Sprintf("reserve_%d", bouquetID))
+// CancelAppointmentTimers отменяет все таймеры связанные с записью
+func (s *Scheduler) CancelAppointmentTimers(appointmentID int) {
+	s.CancelTimer(fmt.Sprintf("receipt_%d", appointmentID))
+	s.CancelTimer(fmt.Sprintf("reminder_%d", appointmentID))
 }
 
 // Shutdown останавливает все таймеры

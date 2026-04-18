@@ -127,398 +127,195 @@ func main() {
 
 	// Выбор услуги
 	bot.Handle(telebot.OnCallback, func(c telebot.Context) error {
-		// Очищаем любые невидимые контрольные символы, которые может добавлять Telebot
+		// В telebot v3 у инлайн кнопок Data лежит в c.Callback().Data (если payload пустой - там только Unique)
+		// Убираем маркер telebot.v3 "\f" и любые другие непечатные символы
 		data := c.Callback().Data
-		data = strings.TrimFunc(data, func(r rune) bool {
-			return r < 32 || r == 127 || r == 160
-		})
-
+		data = strings.TrimLeft(data, "\f")
+		data = strings.TrimSpace(data)
 		userID := c.Sender().ID
 
-		log.Printf("🔘 [CALLBACK] Обрабатываем data: '%s'\n", data)
+		log.Printf("🔘 [CALLBACK] Очищенные данные: '%s'\n", data)
 
-		if len(data) > 15 && data[:15] == "select_service_" {
+		// ========== ДИНАМИЧЕСКИЕ РОУТЫ ==========
+		switch {
+		case strings.HasPrefix(data, "select_service_"):
 			var serviceID int
-			_, err := sscanf(data, "select_service_%d", &serviceID)
-			if err == nil {
-				log.Printf("✅ [CALLBACK] Маршрутизирую на HandleSelectService(%d)\n", serviceID)
-				c.Respond()
-				return clientHandler.HandleSelectService(c, serviceID)
-			}
-			log.Printf("❌ [CALLBACK] Ошибка парсинга select_service: %v\n", err)
-		}
+			fmt.Sscanf(data, "select_service_%d", &serviceID)
+			c.Respond()
+			return clientHandler.HandleSelectService(c, serviceID)
 
-		if len(data) > 12 && data[:12] == "select_date_" {
-			dateStr := data[12:]
-			log.Printf("✅ [CALLBACK] Маршрутизирую на HandleSelectDate(%s)\n", dateStr)
+		case strings.HasPrefix(data, "select_date_"):
+			dateStr := strings.TrimPrefix(data, "select_date_")
 			c.Respond()
 			return clientHandler.HandleSelectDate(c, dateStr)
-		}
 
-		if len(data) > 12 && data[:12] == "select_time_" {
-			// Формат: select_time_2024-01-15_14:30
-			parts := parseDateTimeCallback(data[12:])
+		case strings.HasPrefix(data, "select_time_"):
+			parts := parseDateTimeCallback(strings.TrimPrefix(data, "select_time_"))
 			if len(parts) == 2 {
-				log.Printf("✅ [CALLBACK] Маршрутизирую на HandleSelectTime(%s, %s)\n", parts[0], parts[1])
 				c.Respond()
 				return clientHandler.HandleSelectTime(c, parts[0], parts[1])
 			}
-			log.Printf("❌ [CALLBACK] Ошибка парсинга select_time: %v\n", data)
-		}
 
-		if len(data) > 15 && data[:15] == "payment_kaspi_" {
-			log.Printf("✅ [CALLBACK] Маршрутизирую на HandlePaymentKaspi\n")
+		case strings.HasPrefix(data, "payment_kaspi_"):
 			c.Respond()
 			return clientHandler.HandlePaymentKaspi(c, userID)
-		}
 
-		if len(data) > 13 && data[:13] == "payment_cash_" {
-			log.Printf("✅ [CALLBACK] Маршрутизирую на HandlePaymentCash\n")
+		case strings.HasPrefix(data, "payment_cash_"):
 			c.Respond()
 			return clientHandler.HandlePaymentCash(c, userID)
+
+		case strings.HasPrefix(data, "confirm_receipt_"):
+			var aptID int
+			fmt.Sscanf(data, "confirm_receipt_%d", &aptID)
+			c.Respond()
+			return adminHandler.HandleConfirmReceipt(c, aptID)
+
+		case strings.HasPrefix(data, "reject_receipt_"):
+			var aptID int
+			fmt.Sscanf(data, "reject_receipt_%d", &aptID)
+			c.Respond()
+			return adminHandler.HandleRejectReceipt(c, aptID)
+
+		case strings.HasPrefix(data, "admin_edit_service_"):
+			var serviceID int
+			fmt.Sscanf(data, "admin_edit_service_%d", &serviceID)
+			c.Respond()
+			return adminHandler.HandleAdminEditService(c, serviceID)
+
+		case strings.HasPrefix(data, "admin_apt_detail_"):
+			var aptID int
+			fmt.Sscanf(data, "admin_apt_detail_%d", &aptID)
+			c.Respond()
+			return adminHandler.HandleAdminViewAppointmentDetail(c, aptID)
+
+		case strings.HasPrefix(data, "edit_service_name_"):
+			var serviceID int
+			fmt.Sscanf(data, "edit_service_name_%d", &serviceID)
+			c.Respond()
+			session := stateManager.GetUserSession(userID)
+			session.State = models.StateAdminEditServiceName
+			session.TempData = map[string]interface{}{"serviceID": serviceID}
+			stateManager.SetUserSession(userID, session)
+			return c.Send("📝 Введите новое название услуги:")
+
+		case strings.HasPrefix(data, "edit_service_price_"):
+			var serviceID int
+			fmt.Sscanf(data, "edit_service_price_%d", &serviceID)
+			c.Respond()
+			session := stateManager.GetUserSession(userID)
+			session.State = models.StateAdminEditServicePrice
+			session.TempData = map[string]interface{}{"serviceID": serviceID}
+			stateManager.SetUserSession(userID, session)
+			return c.Send("💰 Введите новую цену услуги (в тг):")
+
+		case strings.HasPrefix(data, "edit_service_duration_"):
+			var serviceID int
+			fmt.Sscanf(data, "edit_service_duration_%d", &serviceID)
+			c.Respond()
+			session := stateManager.GetUserSession(userID)
+			session.State = models.StateAdminEditServiceDuration
+			session.TempData = map[string]interface{}{"serviceID": serviceID}
+			stateManager.SetUserSession(userID, session)
+			return c.Send("⏱️ Введите длительность услуги (в минутах):")
+
+		case strings.HasPrefix(data, "edit_service_toggle_"):
+			var serviceID int
+			fmt.Sscanf(data, "edit_service_toggle_%d", &serviceID)
+			c.Respond()
+			ctx := context.Background()
+			row := database.QueryRow(ctx, `SELECT is_available FROM services WHERE id = $1`, serviceID)
+			var isAvail bool
+			if err := row.Scan(&isAvail); err == nil {
+				database.Exec(ctx, `UPDATE services SET is_available = $1 WHERE id = $2`, !isAvail, serviceID)
+				if !isAvail {
+					return c.Send("✅ Услуга активирована")
+				}
+				return c.Send("❌ Услуга деактивирована")
+			}
+			return c.Send("❌ Ошибка")
+
+		case strings.HasPrefix(data, "edit_service_delete_"):
+			var serviceID int
+			fmt.Sscanf(data, "edit_service_delete_%d", &serviceID)
+			c.Respond()
+			ctx := context.Background()
+			database.Exec(ctx, `DELETE FROM services WHERE id = $1`, serviceID)
+			return c.Send("✅ Услуга удалена")
+
+		case strings.HasPrefix(data, "apt_complete_"):
+			var aptID int
+			fmt.Sscanf(data, "apt_complete_%d", &aptID)
+			c.Respond()
+			database.Exec(context.Background(), `UPDATE appointments SET status = $1, updated_at = NOW() WHERE id = $2`, models.AppointmentStatusCompleted, aptID)
+			return c.Send("✅ Запись завершена")
+
+		case strings.HasPrefix(data, "apt_cancel_"):
+			var aptID int
+			fmt.Sscanf(data, "apt_cancel_%d", &aptID)
+			c.Respond()
+			database.Exec(context.Background(), `UPDATE appointments SET status = $1, updated_at = NOW() WHERE id = $2`, models.AppointmentStatusCancelled, aptID)
+			return c.Send("❌ Запись отменена")
 		}
 
-		// ========== КЛИЕНТ - ГЛАВНОЕ МЕНЮ ==========
-		if data == "book_appointment" {
-			log.Printf("📅 [CALLBACK] Клиент %d -> HandleBookAppointment\n", userID)
+		// ========== СТАТИЧНЫЕ РОУТЫ ==========
+		switch data {
+		case "book_appointment":
 			c.Respond()
 			return clientHandler.HandleBookAppointment(c)
-		}
-
-		if data == "my_appointments" {
-			log.Printf("📋 [CALLBACK] Клиент %d -> HandleMyAppointments\n", userID)
+		case "my_appointments":
 			c.Respond()
 			return clientHandler.HandleMyAppointments(c)
-		}
-
-		if data == "about" {
-			log.Printf("ℹ️ [CALLBACK] Клиент %d -> О салоне\n", userID)
+		case "about":
 			c.Respond()
-			return c.Send("ℹ️ *BEAUTY SALON*\n\nМы предоставляем профессиональные услуги маникюра и педикюра 💅\n\n📍 Адрес: Алматы\n⏰ Режим работы: 10:00 - 20:00\n📞 Контакт: +7 700 000 00 00")
-		}
-
-		if data == "support" {
-			log.Printf("💬 [CALLBACK] Клиент %d -> Поддержка\n", userID)
+			return c.Send("ℹ️ *BEAUTY SALON*\n📍 Адрес: Алматы\n⏰ 10:00 - 20:00")
+		case "support":
 			c.Respond()
-			return c.Send("📞 *Служба поддержки*\n\nЕсли у вас есть вопросы, пожалуйста свяжитесь с нами:\n\n📧 Email: support@salon.kz\n💬 Telegram: @salon_support\n☎️ WhatsApp: +7 700 000 00 00")
-		}
-
-		if data == "main_menu" {
-			log.Printf("🏠 [CALLBACK] Клиент %d -> Главное меню\n", userID)
+			return c.Send("📞 *Поддержка*\nTelegram: @salon_support")
+		case "main_menu":
 			c.Respond()
 			return clientHandler.HandleStart(c)
-		}
-
-		// ========== АДМИН ПАНЕЛЬ ==========
-		if data == "admin_appointments" {
-			log.Printf("📅 [CALLBACK] Админ %d -> HandleAdminAppointments\n", userID)
-			if !adminHandler.IsAdmin(userID) {
-				c.Respond()
-				return c.Send("❌ Доступ запрещён")
-			}
+		case "admin_appointments":
 			c.Respond()
 			return adminHandler.HandleAdminAppointments(c)
-		}
-
-		if data == "admin_services" {
-			log.Printf("💅 [CALLBACK] Админ %d -> HandleAdminServices\n", userID)
-			if !adminHandler.IsAdmin(userID) {
-				c.Respond()
-				return c.Send("❌ Доступ запрещён")
-			}
+		case "admin_services":
 			c.Respond()
 			return adminHandler.HandleAdminServices(c)
-		}
-
-		if data == "admin_settings" {
-			log.Printf("⚙️ [CALLBACK] Админ %d -> HandleAdminSettings\n", userID)
-			if !adminHandler.IsAdmin(userID) {
-				c.Respond()
-				return c.Send("❌ Доступ запрещён")
-			}
+		case "admin_settings":
 			c.Respond()
 			return adminHandler.HandleAdminSettings(c)
-		}
-
-		if data == "admin_add_service" {
-			log.Printf("➕ [CALLBACK] Админ %d -> HandleAdminAddService\n", userID)
-			if !adminHandler.IsAdmin(userID) {
-				c.Respond()
-				return c.Send("❌ Доступ запрещён")
-			}
+		case "admin_add_service":
 			c.Respond()
 			return adminHandler.HandleAdminAddService(c)
-		}
-
-		if data == "admin_set_name" {
-			log.Printf("📝 [CALLBACK] Админ %d -> HandleAdminSetName\n", userID)
-			if !adminHandler.IsAdmin(userID) {
-				c.Respond()
-				return c.Send("❌ Доступ запрещён")
-			}
+		case "admin_set_name":
 			c.Respond()
 			return adminHandler.HandleAdminSetName(c)
-		}
-
-		if data == "admin_set_address" {
-			log.Printf("📍 [CALLBACK] Админ %d -> HandleAdminSetAddress\n", userID)
-			if !adminHandler.IsAdmin(userID) {
-				c.Respond()
-				return c.Send("❌ Доступ запрещён")
-			}
+		case "admin_set_address":
 			c.Respond()
 			return adminHandler.HandleAdminSetAddress(c)
-		}
-
-		if data == "admin_set_open" {
-			log.Printf("🕐 [CALLBACK] Админ %d -> HandleAdminSetScheduleOpen\n", userID)
-			if !adminHandler.IsAdmin(userID) {
-				c.Respond()
-				return c.Send("❌ Доступ запрещён")
-			}
+		case "admin_set_open":
 			c.Respond()
 			return adminHandler.HandleAdminSetScheduleOpen(c)
-		}
-
-		if data == "admin_set_close" {
-			log.Printf("🕐 [CALLBACK] Админ %d -> HandleAdminSetScheduleClose\n", userID)
-			if !adminHandler.IsAdmin(userID) {
-				c.Respond()
-				return c.Send("❌ Доступ запрещён")
-			}
+		case "admin_set_close":
 			c.Respond()
 			return adminHandler.HandleAdminSetScheduleClose(c)
-		}
-
-		if data == "admin_set_reminder" {
-			log.Printf("🔔 [CALLBACK] Админ %d -> HandleAdminSetReminderHours\n", userID)
-			if !adminHandler.IsAdmin(userID) {
-				c.Respond()
-				return c.Send("❌ Доступ запрещён")
-			}
+		case "admin_set_reminder":
 			c.Respond()
 			return adminHandler.HandleAdminSetReminderHours(c)
-		}
-
-		if data == "admin_set_prepay" {
-			log.Printf("💳 [CALLBACK] Админ %d -> HandleAdminSetPrepayPercent\n", userID)
-			if !adminHandler.IsAdmin(userID) {
-				c.Respond()
-				return c.Send("❌ Доступ запрещён")
-			}
+		case "admin_set_prepay":
 			c.Respond()
 			return adminHandler.HandleAdminSetPrepayPercent(c)
-		}
-
-		if data == "admin_set_support" {
-			log.Printf("💬 [CALLBACK] Админ %d -> HandleAdminSetSupportID\n", userID)
-			if !adminHandler.IsAdmin(userID) {
-				c.Respond()
-				return c.Send("❌ Доступ запрещён")
-			}
+		case "admin_set_support":
 			c.Respond()
 			return adminHandler.HandleAdminSetSupportID(c)
-		}
-
-		if data == "admin_stats" {
-			log.Printf("📊 [CALLBACK] Админ %d -> Admin Stats\n", userID)
-			if !adminHandler.IsAdmin(userID) {
-				c.Respond()
-				return c.Send("❌ Доступ запрещён")
-			}
+		case "admin_stats":
 			c.Respond()
 			return c.Send("📊 Статистика (в разработке)")
 		}
 
-		// Подтверждение чека администратором
-		if len(data) > 15 && data[:15] == "confirm_receipt_" {
-			var appointmentID int
-			_, err := fmt.Sscanf(data, "confirm_receipt_%d", &appointmentID)
-			if err == nil {
-				log.Printf("✅ [CALLBACK] Админ %d -> HandleConfirmReceipt(%d)\n", userID, appointmentID)
-				c.Respond()
-				return adminHandler.HandleConfirmReceipt(c, appointmentID)
-			}
-		}
-
-		// Отклонение чека администратором
-		if len(data) > 14 && data[:14] == "reject_receipt_" {
-			var appointmentID int
-			_, err := fmt.Sscanf(data, "reject_receipt_%d", &appointmentID)
-			if err == nil {
-				log.Printf("✅ [CALLBACK] Админ %d -> HandleRejectReceipt(%d)\n", userID, appointmentID)
-				c.Respond()
-				return adminHandler.HandleRejectReceipt(c, appointmentID)
-			}
-		}
-
-		// Редактирование услуги
-		if len(data) > 18 && data[:18] == "admin_edit_service_" {
-			var serviceID int
-			_, err := fmt.Sscanf(data, "admin_edit_service_%d", &serviceID)
-			if err == nil {
-				log.Printf("✏️ [CALLBACK] Админ %d -> Редактирование услуги %d\n", userID, serviceID)
-				if !adminHandler.IsAdmin(userID) {
-					c.Respond()
-					return c.Send("❌ Доступ запрещён")
-				}
-				c.Respond()
-				return adminHandler.HandleAdminEditService(c, serviceID)
-			}
-		}
-
-		// Детали записи
-		if len(data) > 17 && data[:17] == "admin_apt_detail_" {
-			var appointmentID int
-			_, err := fmt.Sscanf(data, "admin_apt_detail_%d", &appointmentID)
-			if err == nil {
-				log.Printf("📋 [CALLBACK] Админ %d -> Детали записи %d\n", userID, appointmentID)
-				if !adminHandler.IsAdmin(userID) {
-					c.Respond()
-					return c.Send("❌ Доступ запрещён")
-				}
-				c.Respond()
-				return adminHandler.HandleAdminViewAppointmentDetail(c, appointmentID)
-			}
-		}
-
-		// Редактирование параметров услуги
-		if len(data) > 16 && data[:16] == "edit_service_name_" {
-			var serviceID int
-			_, err := fmt.Sscanf(data, "edit_service_name_%d", &serviceID)
-			if err == nil {
-				if !adminHandler.IsAdmin(userID) {
-					c.Respond()
-					return c.Send("❌ Доступ запрещён")
-				}
-				c.Respond()
-				session := stateManager.GetUserSession(userID)
-				session.State = models.StateAdminEditServiceName
-				session.TempData = map[string]interface{}{"serviceID": serviceID}
-				stateManager.SetUserSession(userID, session)
-				return c.Send("📝 Введите новое название услуги:")
-			}
-		}
-
-		if len(data) > 17 && data[:17] == "edit_service_price_" {
-			var serviceID int
-			_, err := fmt.Sscanf(data, "edit_service_price_%d", &serviceID)
-			if err == nil {
-				if !adminHandler.IsAdmin(userID) {
-					c.Respond()
-					return c.Send("❌ Доступ запрещён")
-				}
-				c.Respond()
-				session := stateManager.GetUserSession(userID)
-				session.State = models.StateAdminEditServicePrice
-				session.TempData = map[string]interface{}{"serviceID": serviceID}
-				stateManager.SetUserSession(userID, session)
-				return c.Send("💰 Введите новую цену услуги (в тг):")
-			}
-		}
-
-		if len(data) > 19 && data[:19] == "edit_service_duration_" {
-			var serviceID int
-			_, err := fmt.Sscanf(data, "edit_service_duration_%d", &serviceID)
-			if err == nil {
-				if !adminHandler.IsAdmin(userID) {
-					c.Respond()
-					return c.Send("❌ Доступ запрещён")
-				}
-				c.Respond()
-				session := stateManager.GetUserSession(userID)
-				session.State = models.StateAdminEditServiceDuration
-				session.TempData = map[string]interface{}{"serviceID": serviceID}
-				stateManager.SetUserSession(userID, session)
-				return c.Send("⏱️ Введите длительность услуги (в минутах):")
-			}
-		}
-
-		if len(data) > 18 && data[:18] == "edit_service_toggle_" {
-			var serviceID int
-			_, err := fmt.Sscanf(data, "edit_service_toggle_%d", &serviceID)
-			if err == nil {
-				if !adminHandler.IsAdmin(userID) {
-					c.Respond()
-					return c.Send("❌ Доступ запрещён")
-				}
-				log.Printf("🔄 [CALLBACK] Админ %d -> Переключение доступности услуги %d\n", userID, serviceID)
-				c.Respond()
-
-				ctx := context.Background()
-				// Получаем текущий статус
-				row := database.QueryRow(ctx, `SELECT is_available FROM services WHERE id = $1`, serviceID)
-				var isAvailable bool
-				if err := row.Scan(&isAvailable); err == nil {
-					// Переключаем
-					_, _ = database.Exec(ctx, `UPDATE services SET is_available = $1 WHERE id = $2`, !isAvailable, serviceID)
-					if !isAvailable {
-						return c.Send("✅ Услуга активирована")
-					} else {
-						return c.Send("❌ Услуга деактивирована")
-					}
-				}
-				return c.Send("❌ Ошибка")
-			}
-		}
-
-		if len(data) > 18 && data[:18] == "edit_service_delete_" {
-			var serviceID int
-			_, err := fmt.Sscanf(data, "edit_service_delete_%d", &serviceID)
-			if err == nil {
-				if !adminHandler.IsAdmin(userID) {
-					c.Respond()
-					return c.Send("❌ Доступ запрещён")
-				}
-				log.Printf("🗑️ [CALLBACK] Админ %d -> Удаление услуги %d\n", userID, serviceID)
-				c.Respond()
-
-				ctx := context.Background()
-				_, _ = database.Exec(ctx, `DELETE FROM services WHERE id = $1`, serviceID)
-				return c.Send("✅ Услуга удалена")
-			}
-		}
-
-		// Управление записями
-		if len(data) > 11 && data[:11] == "apt_complete_" {
-			var appointmentID int
-			_, err := fmt.Sscanf(data, "apt_complete_%d", &appointmentID)
-			if err == nil {
-				if !adminHandler.IsAdmin(userID) {
-					c.Respond()
-					return c.Send("❌ Доступ запрещён")
-				}
-				log.Printf("✅ [CALLBACK] Админ %d -> Завершение записи %d\n", userID, appointmentID)
-				c.Respond()
-
-				ctx := context.Background()
-				_, _ = database.Exec(ctx, `UPDATE appointments SET status = $1, updated_at = NOW() WHERE id = $2`,
-					models.AppointmentStatusCompleted, appointmentID)
-				return c.Send("✅ Запись отмечена как завершенная")
-			}
-		}
-
-		if len(data) > 9 && data[:9] == "apt_cancel_" {
-			var appointmentID int
-			_, err := fmt.Sscanf(data, "apt_cancel_%d", &appointmentID)
-			if err == nil {
-				if !adminHandler.IsAdmin(userID) {
-					c.Respond()
-					return c.Send("❌ Доступ запрещён")
-				}
-				log.Printf("❌ [CALLBACK] Админ %d -> Отмена записи %d\n", userID, appointmentID)
-				c.Respond()
-
-				ctx := context.Background()
-				_, _ = database.Exec(ctx, `UPDATE appointments SET status = $1, updated_at = NOW() WHERE id = $2`,
-					models.AppointmentStatusCancelled, appointmentID)
-				return c.Send("❌ Запись отменена")
-			}
-		}
-
-		log.Printf("⚠️ [CALLBACK] Неизвестная кнопка от пользователя %d: %s\n", userID, data)
+		// Если ничего не подошло
+		log.Printf("⚠️ [CALLBACK] Неизвестный маршрут: '%s'\n", data)
 		c.Respond()
-		return c.Edit("❌ Неизвестная кнопка")
+		return c.Edit(fmt.Sprintf("❌ Ошибка: неизвестный маршурт '%s'", data))
 	})
 
 	// ========== ТЕКСТОВЫЕ СООБЩЕНИЯ И ФОТ ==========

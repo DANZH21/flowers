@@ -135,10 +135,7 @@ func main() {
 			return r < 32 || r == 127 || r == 160 // контроль символы, DEL, NBSP
 		})
 
-		log.Printf("🔘 [CALLBACK] Пользователь %d нажал кнопку: '%s' (len=%d, bytes=%d)\n", userID, data, len(data), len([]byte(data)))
-		for i, ch := range data {
-			log.Printf("   char[%d] = '%c' (U+%04X, ASCII %d)\n", i, ch, ch, ch)
-		}
+		log.Printf("🔘 [CALLBACK] Пользователь %d нажал кнопку: %s\n", userID, data)
 
 		if len(data) > 15 && data[:15] == "select_service_" {
 			var serviceID int

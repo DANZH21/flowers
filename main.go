@@ -112,48 +112,68 @@ func main() {
 		return adminHandler.HandleAdminMenu(c)
 	})
 
-	// ========== INLINE КНОПКИ ==========
+	// ========== INLINE BUTTON HANDLERS ==========
 
-	// Главное меню
-	bot.Handle(&telebot.Btn{Unique: "main_menu"}, func(c telebot.Context) error {
-		log.Printf("🏠 [BUTTON] Пользователь %d нажал 'Меню'\n", c.Sender().ID)
-		c.Respond()
-		return clientHandler.HandleStart(c)
-	})
-
-	// Клиент - запись на услугу
+	// Обработчик для кнопки "Записаться"
 	bot.Handle(&telebot.Btn{Unique: "book_appointment"}, func(c telebot.Context) error {
 		log.Printf("📅 [BUTTON] Пользователь %d нажал 'Записаться'\n", c.Sender().ID)
 		c.Respond()
 		return clientHandler.HandleBookAppointment(c)
 	})
 
-	// Клиент - мои записи
+	// Обработчик для кнопки "Мои записи"
 	bot.Handle(&telebot.Btn{Unique: "my_appointments"}, func(c telebot.Context) error {
 		log.Printf("📋 [BUTTON] Пользователь %d нажал 'Мои записи'\n", c.Sender().ID)
 		c.Respond()
 		return clientHandler.HandleMyAppointments(c)
 	})
 
-	// Главное меню
-	bot.Handle(&telebot.Btn{Unique: "main_menu"}, func(c telebot.Context) error {
-		log.Printf("🏠 [BUTTON] Пользователь %d нажал 'Главное меню'\n", c.Sender().ID)
-		c.Respond()
-		return clientHandler.HandleStart(c)
-	})
-
-	// О салоне
+	// Обработчик для кнопки "О салоне"
 	bot.Handle(&telebot.Btn{Unique: "about"}, func(c telebot.Context) error {
 		log.Printf("ℹ️ [BUTTON] Пользователь %d нажал 'О салоне'\n", c.Sender().ID)
 		c.Respond()
 		return c.Send("ℹ️ *BEAUTY SALON*\n\nМы предоставляем профессиональные услуги маникюра и педикюра 💅\n\n📍 Адрес: Алматы\n⏰ Режим работы: 10:00 - 20:00\n📞 Контакт: +7 700 000 00 00")
 	})
 
-	// Поддержка
+	// Обработчик для кнопки "Поддержка"
 	bot.Handle(&telebot.Btn{Unique: "support"}, func(c telebot.Context) error {
 		log.Printf("💬 [BUTTON] Пользователь %d нажал 'Поддержка'\n", c.Sender().ID)
 		c.Respond()
 		return c.Send("📞 *Служба поддержки*\n\nЕсли у вас есть вопросы, пожалуйста свяжитесь с нами:\n\n📧 Email: support@salon.kz\n💬 Telegram: @salon_support\n☎️ WhatsApp: +7 700 000 00 00")
+	})
+
+	// Обработчик для кнопки "Главное меню"
+	bot.Handle(&telebot.Btn{Unique: "main_menu"}, func(c telebot.Context) error {
+		log.Printf("🏠 [BUTTON] Пользователь %d нажал 'Главное меню'\n", c.Sender().ID)
+		c.Respond()
+		return clientHandler.HandleStart(c)
+	})
+
+	// ========== ADMIN BUTTON HANDLERS ==========
+
+	// Админ кнопки
+	bot.Handle(&telebot.Btn{Unique: "admin_appointments"}, func(c telebot.Context) error {
+		log.Printf("📅 [ADMIN BUTTON] Админ %d нажал 'Записи'\n", c.Sender().ID)
+		c.Respond()
+		return adminHandler.HandleAdminAppointments(c)
+	})
+
+	bot.Handle(&telebot.Btn{Unique: "admin_services"}, func(c telebot.Context) error {
+		log.Printf("💅 [ADMIN BUTTON] Админ %d нажал 'Услуги'\n", c.Sender().ID)
+		c.Respond()
+		return adminHandler.HandleAdminServices(c)
+	})
+
+	bot.Handle(&telebot.Btn{Unique: "admin_settings"}, func(c telebot.Context) error {
+		log.Printf("⚙️ [ADMIN BUTTON] Админ %d нажал 'Настройки'\n", c.Sender().ID)
+		c.Respond()
+		return adminHandler.HandleAdminSettings(c)
+	})
+
+	bot.Handle(&telebot.Btn{Unique: "admin_stats"}, func(c telebot.Context) error {
+		log.Printf("📊 [ADMIN BUTTON] Админ %d нажал 'Статистика'\n", c.Sender().ID)
+		c.Respond()
+		return c.Send("📊 Статистика (в разработке)")
 	})
 
 	// Выбор услуги

@@ -242,11 +242,13 @@ func (ch *ClientHandler) showDateSelection(c telebot.Context, userID int64) erro
 
 	// Показываем 7 дней
 	now := time.Now()
+	days := []string{"Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"}
 	for i := 0; i < 7; i++ {
 		date := now.AddDate(0, 0, i)
 		dateStr := date.Format("2006-01-02")
+		label := fmt.Sprintf("%s %s", days[date.Weekday()], date.Format("02.01"))
 		btn := menu.Data(
-			date.Format("Mon 02/01"),
+			label,
 			fmt.Sprintf("select_date_%s", dateStr),
 		)
 		btnRows = append(btnRows, menu.Row(btn))
@@ -306,6 +308,7 @@ func (ch *ClientHandler) showTimeSelection(c telebot.Context, userID int64, date
 
 	menu := &telebot.ReplyMarkup{}
 	var btnRows []telebot.Row
+	var allTimeBtns []telebot.Btn
 
 	// Показываем каждый час в рабочее время
 	for hour := openHour; hour < closeHour; hour++ {
@@ -315,13 +318,17 @@ func (ch *ClientHandler) showTimeSelection(c telebot.Context, userID int64, date
 				timeStr,
 				fmt.Sprintf("select_time_%s_%s", dateStr, timeStr),
 			)
-			btnRows = append(btnRows, menu.Row(btn))
-
-			if len(btnRows) >= 3 {
-				menu.Inline(btnRows...)
-				btnRows = []telebot.Row{}
-			}
+			allTimeBtns = append(allTimeBtns, btn)
 		}
+	}
+
+	// Разбиваем кнопки по 3 в ряд
+	for i := 0; i < len(allTimeBtns); i += 3 {
+		end := i + 3
+		if end > len(allTimeBtns) {
+			end = len(allTimeBtns)
+		}
+		btnRows = append(btnRows, menu.Row(allTimeBtns[i:end]...))
 	}
 
 	if len(btnRows) > 0 {

@@ -77,6 +77,9 @@ func LoadConfig() (*Config, error) {
 				cfg.AdminIDs = append(cfg.AdminIDs, id)
 			}
 		}
+	} else {
+		// Если ADMIN_IDS не установлен, показываем предупреждение
+		// но не блокируем запуск
 	}
 
 	// Парсим SupportUserID

@@ -25,6 +25,13 @@ func main() {
 		log.Fatalf("❌ Ошибка загрузки конфига: %v\n", err)
 	}
 
+	// Выводим конфигурацию
+	log.Printf("📋 [КОНФИГ] Loaded Admin IDs: %v (количество: %d)\n", cfg.AdminIDs, len(cfg.AdminIDs))
+	if len(cfg.AdminIDs) == 0 {
+		log.Println("⚠️ [КОНФИГ] ВНИМАНИЕ: ADMIN_IDS не установлен или пуст!")
+		log.Println("⚠️ [КОНФИГ] Установите переменную ADMIN_IDS в формате: ADMIN_IDS=123,456,789")
+	}
+
 	// Проверяем обязательные переменные
 	if cfg.TelegramBotToken == "" {
 		log.Fatalf("❌ TELEGRAM_BOT_TOKEN не установлен")
@@ -84,11 +91,22 @@ func main() {
 
 	// /start
 	bot.Handle("/start", func(c telebot.Context) error {
+		log.Printf("🔵 [COMMAND] /start от пользователя %d\n", c.Sender().ID)
 		return clientHandler.HandleStart(c)
 	})
 
 	// /admin
 	bot.Handle("/admin", func(c telebot.Context) error {
+		userID := c.Sender().ID
+		log.Printf("🔴 [COMMAND] /admin от пользователя %d\n", userID)
+		log.Printf("   Проверяю права администратора...\n")
+		isAdmin := adminHandler.IsAdmin(userID)
+		log.Printf("   IsAdmin: %v\n", isAdmin)
+		if !isAdmin {
+			log.Printf("   ❌ Пользователь %d не является администратором\n", userID)
+			return c.Send("❌ Доступ запрещён. Вы не администратор.\n\nАдминистратор ID: " + fmt.Sprintf("%d", userID))
+		}
+		log.Printf("   ✅ Пользователь %d имеет права администратора\n", userID)
 		return adminHandler.HandleAdminMenu(c)
 	})
 
@@ -166,66 +184,133 @@ func main() {
 		// Админ панель
 		if data == "admin_appointments" {
 			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminAppointments\n", userID)
+			if !adminHandler.IsAdmin(userID) {
+				log.Printf("❌ [CALLBACK] Пользователь %d не администратор!\n", userID)
+				c.Respond()
+				return c.Send("❌ Доступ запрещён")
+			}
 			c.Respond()
-			return adminHandler.HandleAdminAppointments(c)
+			err := adminHandler.HandleAdminAppointments(c)
+			if err != nil {
+				log.Printf("❌ [ERROR] HandleAdminAppointments ошибка: %v\n", err)
+			}
+			return err
 		}
 
 		if data == "admin_services" {
 			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminServices\n", userID)
+			if !adminHandler.IsAdmin(userID) {
+				log.Printf("❌ [CALLBACK] Пользователь %d не администратор!\n", userID)
+				c.Respond()
+				return c.Send("❌ Доступ запрещён")
+			}
 			c.Respond()
-			return adminHandler.HandleAdminServices(c)
+			err := adminHandler.HandleAdminServices(c)
+			if err != nil {
+				log.Printf("❌ [ERROR] HandleAdminServices ошибка: %v\n", err)
+			}
+			return err
 		}
 
 		if data == "admin_settings" {
 			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminSettings\n", userID)
+			if !adminHandler.IsAdmin(userID) {
+				log.Printf("❌ [CALLBACK] Пользователь %d не администратор!\n", userID)
+				c.Respond()
+				return c.Send("❌ Доступ запрещён")
+			}
 			c.Respond()
-			return adminHandler.HandleAdminSettings(c)
+			err := adminHandler.HandleAdminSettings(c)
+			if err != nil {
+				log.Printf("❌ [ERROR] HandleAdminSettings ошибка: %v\n", err)
+			}
+			return err
 		}
 
 		if data == "admin_add_service" {
 			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminAddService\n", userID)
+			if !adminHandler.IsAdmin(userID) {
+				log.Printf("❌ [CALLBACK] Пользователь %d не администратор!\n", userID)
+				c.Respond()
+				return c.Send("❌ Доступ запрещён")
+			}
 			c.Respond()
 			return adminHandler.HandleAdminAddService(c)
 		}
 
 		if data == "admin_set_name" {
 			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminSetName\n", userID)
+			if !adminHandler.IsAdmin(userID) {
+				log.Printf("❌ [CALLBACK] Пользователь %d не администратор!\n", userID)
+				c.Respond()
+				return c.Send("❌ Доступ запрещён")
+			}
 			c.Respond()
 			return adminHandler.HandleAdminSetName(c)
 		}
 
 		if data == "admin_set_address" {
 			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminSetAddress\n", userID)
+			if !adminHandler.IsAdmin(userID) {
+				log.Printf("❌ [CALLBACK] Пользователь %d не администратор!\n", userID)
+				c.Respond()
+				return c.Send("❌ Доступ запрещён")
+			}
 			c.Respond()
 			return adminHandler.HandleAdminSetAddress(c)
 		}
 
 		if data == "admin_set_open" {
 			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminSetScheduleOpen\n", userID)
+			if !adminHandler.IsAdmin(userID) {
+				log.Printf("❌ [CALLBACK] Пользователь %d не администратор!\n", userID)
+				c.Respond()
+				return c.Send("❌ Доступ запрещён")
+			}
 			c.Respond()
 			return adminHandler.HandleAdminSetScheduleOpen(c)
 		}
 
 		if data == "admin_set_close" {
 			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminSetScheduleClose\n", userID)
+			if !adminHandler.IsAdmin(userID) {
+				log.Printf("❌ [CALLBACK] Пользователь %d не администратор!\n", userID)
+				c.Respond()
+				return c.Send("❌ Доступ запрещён")
+			}
 			c.Respond()
 			return adminHandler.HandleAdminSetScheduleClose(c)
 		}
 
 		if data == "admin_set_reminder" {
 			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminSetReminderHours\n", userID)
+			if !adminHandler.IsAdmin(userID) {
+				log.Printf("❌ [CALLBACK] Пользователь %d не администратор!\n", userID)
+				c.Respond()
+				return c.Send("❌ Доступ запрещён")
+			}
 			c.Respond()
 			return adminHandler.HandleAdminSetReminderHours(c)
 		}
 
 		if data == "admin_set_prepay" {
 			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminSetPrepayPercent\n", userID)
+			if !adminHandler.IsAdmin(userID) {
+				log.Printf("❌ [CALLBACK] Пользователь %d не администратор!\n", userID)
+				c.Respond()
+				return c.Send("❌ Доступ запрещён")
+			}
 			c.Respond()
 			return adminHandler.HandleAdminSetPrepayPercent(c)
 		}
 
 		if data == "admin_set_support" {
 			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminSetSupportID\n", userID)
+			if !adminHandler.IsAdmin(userID) {
+				log.Printf("❌ [CALLBACK] Пользователь %d не администратор!\n", userID)
+				c.Respond()
+				return c.Send("❌ Доступ запрещён")
+			}
 			c.Respond()
 			return adminHandler.HandleAdminSetSupportID(c)
 		}

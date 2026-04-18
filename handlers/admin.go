@@ -115,6 +115,7 @@ func (ah *AdminHandler) HandleAdminMenu(c telebot.Context) error {
 		),
 	)
 
+	log.Printf("✅ [ADMIN] Показываю панель настроек\n")
 	return c.Send(text, menu)
 }
 
@@ -124,6 +125,8 @@ func (ah *AdminHandler) HandleAdminMenu(c telebot.Context) error {
 func (ah *AdminHandler) HandleAdminAppointments(c telebot.Context) error {
 	ctx := context.Background()
 
+	log.Printf("📅 [ADMIN] Запрос списка записей\n")
+
 	rows, err := ah.db.Query(ctx,
 		`SELECT a.id, a.appointment_num, a.customer_name, a.status, a.appointment_time
 		FROM appointments a
@@ -132,8 +135,8 @@ func (ah *AdminHandler) HandleAdminAppointments(c telebot.Context) error {
 		LIMIT 20`,
 		models.AppointmentStatusScheduled, models.AppointmentStatusConfirmed, models.AppointmentStatusCompleted)
 	if err != nil {
-		log.Printf("❌ Ошибка получения записей: %v\n", err)
-		return c.Edit("❌ Ошибка при загрузке записей")
+		log.Printf("❌ [ADMIN] Ошибка получения записей: %v\n", err)
+		return c.Send("❌ Ошибка при загрузке записей")
 	}
 	defer rows.Close()
 
@@ -166,18 +169,23 @@ func (ah *AdminHandler) HandleAdminAppointments(c telebot.Context) error {
 		)
 	}
 
-	return c.Edit("📅 Активные записи:", menu)
+	log.Printf("✅ [ADMIN] Показываю список записей\n")
+	return c.Send("📅 Активные записи:", menu)
 }
 
 // HandleAdminServices показывает список услуг
 func (ah *AdminHandler) HandleAdminServices(c telebot.Context) error {
 	ctx := context.Background()
 
+	log.Printf("💅 [ADMIN] Запрос списка услуг\n")
+
+	log.Printf("💅 [ADMIN] Запрос списка услуг\n")
+
 	rows, err := ah.db.Query(ctx,
 		`SELECT id, name, price, duration_min, is_available FROM services ORDER BY name`)
 	if err != nil {
 		log.Printf("❌ Ошибка получения услуг: %v\n", err)
-		return c.Edit("❌ Ошибка при загрузке услуг")
+		return c.Send("❌ Ошибка при загрузке услуг")
 	}
 	defer rows.Close()
 
@@ -216,7 +224,8 @@ func (ah *AdminHandler) HandleAdminServices(c telebot.Context) error {
 
 	menu.Inline(btnRows...)
 
-	return c.Edit(text, menu)
+	log.Printf("✅ [ADMIN] Показываю %d услуг\n", len(btnRows)-1)
+	return c.Send(text, menu)
 }
 
 // HandleAdminAddService начинает добавление услуги
@@ -241,10 +250,12 @@ func (ah *AdminHandler) HandleAdminAddService(c telebot.Context) error {
 func (ah *AdminHandler) HandleAdminSettings(c telebot.Context) error {
 	ctx := context.Background()
 
+	log.Printf("⚙️ [ADMIN] Запрос настроек салона\n")
+
 	salonSettings, err := ah.db.GetSalonSettings(ctx)
 	if err != nil {
-		log.Printf("❌ Ошибка получения настроек: %v\n", err)
-		return c.Edit("❌ Ошибка")
+		log.Printf("❌ [ADMIN] Ошибка получения настроек: %v\n", err)
+		return c.Send("❌ Ошибка")
 	}
 
 	text := fmt.Sprintf(
@@ -278,7 +289,8 @@ func (ah *AdminHandler) HandleAdminSettings(c telebot.Context) error {
 		),
 	)
 
-	return c.Edit(text, menu)
+	log.Printf("✅ [ADMIN] Показываю панель настроек\n")
+	return c.Send(text, menu)
 }
 
 // HandleAdminSetName начинает изменение названия
@@ -608,7 +620,7 @@ func (ah *AdminHandler) HandleConfirmReceipt(c telebot.Context, appointmentID in
 
 	if err := row.Scan(&userID, &appointmentNum, &amount); err != nil {
 		log.Printf("❌ Ошибка получения записи: %v\n", err)
-		return c.Edit("❌ Запись не найдена")
+		return c.Send("❌ Запись не найдена")
 	}
 
 	// Обновляем статус чека
@@ -617,7 +629,7 @@ func (ah *AdminHandler) HandleConfirmReceipt(c telebot.Context, appointmentID in
 		models.ReceiptStatusConfirmed, appointmentID)
 	if err != nil {
 		log.Printf("❌ Ошибка обновления статуса чека: %v\n", err)
-		return c.Edit("❌ Ошибка при подтверждении")
+		return c.Send("❌ Ошибка при подтверждении")
 	}
 
 	log.Printf("✅ Чек для записи #%d подтвержден\n", appointmentNum)
@@ -629,7 +641,7 @@ func (ah *AdminHandler) HandleConfirmReceipt(c telebot.Context, appointmentID in
 		log.Printf("⚠️ Ошибка отправки подтверждения клиенту: %v\n", err)
 	}
 
-	return c.Edit(fmt.Sprintf("✅ Чек #%d подтвержден", appointmentNum))
+	return c.Send(fmt.Sprintf("✅ Чек #%d подтвержден", appointmentNum))
 }
 
 // HandleRejectReceipt отклоняет чек администратором
@@ -647,7 +659,7 @@ func (ah *AdminHandler) HandleRejectReceipt(c telebot.Context, appointmentID int
 
 	if err := row.Scan(&userID, &appointmentNum); err != nil {
 		log.Printf("❌ Ошибка получения записи: %v\n", err)
-		return c.Edit("❌ Запись не найдена")
+		return c.Send("❌ Запись не найдена")
 	}
 
 	// Обновляем статус чека
@@ -656,7 +668,7 @@ func (ah *AdminHandler) HandleRejectReceipt(c telebot.Context, appointmentID int
 		models.ReceiptStatusRejected, appointmentID)
 	if err != nil {
 		log.Printf("❌ Ошибка обновления статуса чека: %v\n", err)
-		return c.Edit("❌ Ошибка при отклонении")
+		return c.Send("❌ Ошибка при отклонении")
 	}
 
 	log.Printf("✅ Чек для записи #%d отклонен\n", appointmentNum)
@@ -668,5 +680,5 @@ func (ah *AdminHandler) HandleRejectReceipt(c telebot.Context, appointmentID int
 		log.Printf("⚠️ Ошибка отправки отклонения клиенту: %v\n", err)
 	}
 
-	return c.Edit(fmt.Sprintf("❌ Чек #%d отклонен", appointmentNum))
+	return c.Send(fmt.Sprintf("❌ Чек #%d отклонен", appointmentNum))
 }

@@ -130,7 +130,10 @@ func main() {
 		data := c.Callback().Data
 		userID := c.Sender().ID
 
-		log.Printf("🔘 [CALLBACK] Пользователь %d нажал кнопку: %s\n", userID, data)
+		log.Printf("🔘 [CALLBACK] Пользователь %d нажал кнопку: '%s' (len=%d, bytes=%d)\n", userID, data, len(data), len([]byte(data)))
+		for i, ch := range data {
+			log.Printf("   char[%d] = '%c' (U+%04X, ASCII %d)\n", i, ch, ch, ch)
+		}
 
 		if len(data) > 15 && data[:15] == "select_service_" {
 			var serviceID int

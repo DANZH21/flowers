@@ -384,8 +384,13 @@ func (ch *ClientHandler) HandleNameInput(c telebot.Context) error {
 	ch.stateManager.SetUserSession(userID, session)
 
 	// Запрашиваем номер телефона
-	text := "📱 Введите номер телефона (например, +77771234567):"
-	msg, err := ch.bot.Send(c.Sender(), text)
+	text := "📱 Введите номер телефона (например, +77771234567) или отправьте контакт:"
+
+	menu := &telebot.ReplyMarkup{ResizeKeyboard: true, OneTimeKeyboard: true}
+	btnContact := menu.Contact("📱 Поделиться контактом")
+	menu.Reply(menu.Row(btnContact))
+
+	msg, err := ch.bot.Send(c.Sender(), text, menu)
 	if err == nil {
 		ch.stateManager.AddMessageToDelete(userID, msg.ID)
 	}
@@ -396,7 +401,15 @@ func (ch *ClientHandler) HandleNameInput(c telebot.Context) error {
 // HandlePhoneInput обрабатывает ввод номера телефона
 func (ch *ClientHandler) HandlePhoneInput(c telebot.Context) error {
 	userID := c.Sender().ID
-	phone := c.Message().Text
+
+	var phone string
+	if c.Message().Contact != nil {
+		phone = c.Message().Contact.PhoneNumber
+		// Убираем клавиатуру после отправки контакта
+		ch.bot.Send(c.Sender(), "✅ Контакт получен", &telebot.ReplyMarkup{RemoveKeyboard: true})
+	} else {
+		phone = c.Message().Text
+	}
 
 	// Проверяем формат номера
 	phoneRegex := regexp.MustCompile(`^\+?\d{10,15}$`)

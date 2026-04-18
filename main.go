@@ -379,6 +379,20 @@ func main() {
 		return c.Send("❌ В данный момент фото не требуются")
 	})
 
+	// Обработчик для контактов
+	bot.Handle(telebot.OnContact, func(c telebot.Context) error {
+		userID := c.Sender().ID
+		state := stateManager.GetState(userID)
+
+		log.Printf("📱 [CONTACT] Пользователь %d отправил контакт (состояние %v)\n", userID, state)
+
+		if state == models.StateAwaitingPhone {
+			return clientHandler.HandlePhoneInput(c)
+		}
+
+		return c.Send("❌ В данный момент номер телефона не требуется")
+	})
+
 	// ========== GRACEFUL SHUTDOWN ==========
 
 	sigChan := make(chan os.Signal, 1)

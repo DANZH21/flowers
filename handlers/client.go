@@ -606,15 +606,20 @@ func (ch *ClientHandler) createAppointment(c telebot.Context, userID int64) erro
 	}
 
 	// Создаем запись
+	receiptStatus := ""
+	if draft.PaymentType == models.PaymentTypeKaspi && receiptURL != "" {
+		receiptStatus = models.ReceiptStatusPending // Чек ожидает подтверждения
+	}
+
 	insertRow := ch.db.QueryRow(ctx,
 		`INSERT INTO appointments (
 			user_id, service_id, appointment_time, payment_type, amount, 
-			customer_name, customer_phone, status, receipt_url, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+			customer_name, customer_phone, status, receipt_url, receipt_status, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
 		RETURNING id, appointment_num`,
 		userID, draft.ServiceID, appointmentTime, draft.PaymentType, price,
 		draft.Name, draft.Phone, models.AppointmentStatusScheduled,
-		nullableString(receiptURL))
+		nullableString(receiptURL), nullableString(receiptStatus))
 
 	var appointmentID, appointmentNum int
 	if err := insertRow.Scan(&appointmentID, &appointmentNum); err != nil {
@@ -660,7 +665,7 @@ func (ch *ClientHandler) createAppointment(c telebot.Context, userID int64) erro
 	}
 
 	// Отправляем админу уведомление о новой записи
-	ch.notifyAdminNewAppointment(ctx, appointmentNum, draft.Name, serviceName, draft.AppointmentDate, draft.AppointmentTime)
+	ch.notifyAdminNewAppointment(ctx, appointmentID, appointmentNum, draft.Name, serviceName, draft.AppointmentDate, draft.AppointmentTime, receiptURL != "")
 
 	return err
 }
@@ -734,7 +739,7 @@ func (ch *ClientHandler) HandleMyAppointments(c telebot.Context) error {
 }
 
 // notifyAdminNewAppointment отправляет уведомление администратору
-func (ch *ClientHandler) notifyAdminNewAppointment(ctx context.Context, appointmentNum int, customerName, serviceName, date, time string) {
+func (ch *ClientHandler) notifyAdminNewAppointment(ctx context.Context, appointmentID, appointmentNum int, customerName, serviceName, date, time string, hasReceipt bool) {
 	// Получаем ID поддержки
 	salonSettings, err := ch.db.GetSalonSettings(ctx)
 	if err != nil || salonSettings["support_user_id"] == nil {
@@ -755,8 +760,31 @@ func (ch *ClientHandler) notifyAdminNewAppointment(ctx context.Context, appointm
 		"Время: %s",
 		appointmentNum, customerName, serviceName, date, time)
 
+	// Если есть чек на подтверждение
+	if hasReceipt {
+		text += "\n\n📄 Требуется подтверждение чека!"
+	}
+
+	menu := &telebot.ReplyMarkup{}
+
+	// Если есть чек - добавляем кнопку подтверждения
+	if hasReceipt {
+		menu.Inline(
+			menu.Row(
+				telebot.Btn{
+					Text:   "✅ Подтвердить чек",
+					Unique: fmt.Sprintf("confirm_receipt_%d", appointmentID),
+				},
+				telebot.Btn{
+					Text:   "❌ Отклонить",
+					Unique: fmt.Sprintf("reject_receipt_%d", appointmentID),
+				},
+			),
+		)
+	}
+
 	user := &telebot.User{ID: *supportUserID}
-	if _, err := ch.bot.Send(user, text); err != nil {
+	if _, err := ch.bot.Send(user, text, menu); err != nil {
 		log.Printf("⚠️ Ошибка отправки уведомления админу: %v\n", err)
 	}
 }

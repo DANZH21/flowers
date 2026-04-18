@@ -63,6 +63,7 @@ func (d *Database) RunMigrations(ctx context.Context, cfg *config.Config) error 
 			customer_phone TEXT,
 			status TEXT NOT NULL DEFAULT 'scheduled',
 			receipt_url TEXT,
+			receipt_status TEXT DEFAULT 'pending',
 			receipt_deadline TIMESTAMPTZ,
 			reminder_sent BOOLEAN DEFAULT FALSE,
 			created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -76,6 +77,9 @@ func (d *Database) RunMigrations(ctx context.Context, cfg *config.Config) error 
 		`CREATE INDEX IF NOT EXISTS idx_appointments_service_id ON appointments(service_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_services_available ON services(is_available)`,
 		`CREATE INDEX IF NOT EXISTS idx_users_is_admin ON users(is_admin)`,
+
+		// Добавляем колонку receipt_status если её нет
+		`ALTER TABLE appointments ADD COLUMN IF NOT EXISTS receipt_status TEXT DEFAULT 'pending'`,
 	}
 
 	for _, migration := range migrations {

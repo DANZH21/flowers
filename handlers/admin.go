@@ -298,6 +298,23 @@ func (ah *AdminHandler) HandleAdminSetName(c telebot.Context) error {
 	return err
 }
 
+// HandleAdminSetAddress начинает изменение адреса
+func (ah *AdminHandler) HandleAdminSetAddress(c telebot.Context) error {
+	userID := c.Sender().ID
+
+	session := ah.stateManager.GetUserSession(userID)
+	session.State = models.StateAdminSetAddress
+	ah.stateManager.SetUserSession(userID, session)
+
+	text := "📍 Введите адрес салона:"
+	msg, err := ah.bot.Send(c.Sender(), text)
+	if err == nil {
+		ah.stateManager.AddMessageToDelete(userID, msg.ID)
+	}
+
+	return err
+}
+
 // HandleAdminInputSalonName обрабатывает ввод названия
 func (ah *AdminHandler) HandleAdminInputSalonName(c telebot.Context) error {
 	ctx := context.Background()
@@ -319,6 +336,30 @@ func (ah *AdminHandler) HandleAdminInputSalonName(c telebot.Context) error {
 	ah.stateManager.ResetState(userID)
 
 	text := fmt.Sprintf("✅ Название салона изменено на: %s", name)
+	return c.Send(text)
+}
+
+// HandleAdminInputAddress обрабатывает ввод адреса
+func (ah *AdminHandler) HandleAdminInputAddress(c telebot.Context) error {
+	ctx := context.Background()
+	userID := c.Sender().ID
+	address := strings.TrimSpace(c.Message().Text)
+
+	if len(address) < 2 || len(address) > 200 {
+		return c.Send("❌ Адрес должен быть от 2 до 200 символов")
+	}
+
+	// Обновляем в БД
+	_, err := ah.db.Exec(ctx,
+		`UPDATE salon_settings SET address = $1`, address)
+	if err != nil {
+		log.Printf("❌ Ошибка обновления адреса: %v\n", err)
+		return c.Send("❌ Ошибка при сохранении")
+	}
+
+	ah.stateManager.ResetState(userID)
+
+	text := fmt.Sprintf("✅ Адрес салона изменен на: %s", address)
 	return c.Send(text)
 }
 
@@ -377,6 +418,33 @@ func (ah *AdminHandler) HandleAdminSetScheduleClose(c telebot.Context) error {
 	if err == nil {
 		ah.stateManager.AddMessageToDelete(userID, msg.ID)
 	}
+
+	return err
+}
+
+// HandleAdminInputScheduleClose обрабатывает ввод времени закрытия
+func (ah *AdminHandler) HandleAdminInputScheduleClose(c telebot.Context) error {
+	ctx := context.Background()
+	userID := c.Sender().ID
+	timeStr := strings.TrimSpace(c.Message().Text)
+
+	// Проверяем формат
+	if !isValidTimeFormat(timeStr) {
+		return c.Send("❌ Неверный формат. Используйте: 20:00")
+	}
+
+	// Обновляем в БД
+	_, err := ah.db.Exec(ctx,
+		`UPDATE salon_settings SET schedule_close = $1`, timeStr)
+	if err != nil {
+		log.Printf("❌ Ошибка обновления времени: %v\n", err)
+		return c.Send("❌ Ошибка при сохранении")
+	}
+
+	ah.stateManager.ResetState(userID)
+
+	text := fmt.Sprintf("✅ Время закрытия установлено: %s", timeStr)
+	return c.Send(text)
 
 	return err
 }
@@ -471,6 +539,49 @@ func (ah *AdminHandler) HandleAdminInputPrepayPercent(c telebot.Context) error {
 	return c.Send(text)
 }
 
+// HandleAdminSetSupportID начинает установку ID поддержки
+func (ah *AdminHandler) HandleAdminSetSupportID(c telebot.Context) error {
+	userID := c.Sender().ID
+
+	session := ah.stateManager.GetUserSession(userID)
+	session.State = models.StateAdminSetSupportID
+	ah.stateManager.SetUserSession(userID, session)
+
+	text := "💬 Введите Telegram ID для отправки уведомлений (ваш ID: " + fmt.Sprintf("%d", userID) + "):"
+	msg, err := ah.bot.Send(c.Sender(), text)
+	if err == nil {
+		ah.stateManager.AddMessageToDelete(userID, msg.ID)
+	}
+
+	return err
+}
+
+// HandleAdminInputSupportID обрабатывает ввод ID поддержки
+func (ah *AdminHandler) HandleAdminInputSupportID(c telebot.Context) error {
+	ctx := context.Background()
+	userID := c.Sender().ID
+	input := strings.TrimSpace(c.Message().Text)
+
+	supportID := int64(0)
+	_, err := fmt.Sscanf(input, "%d", &supportID)
+	if err != nil || supportID <= 0 {
+		return c.Send("❌ Введите корректный Telegram ID (число)")
+	}
+
+	// Обновляем в БД
+	_, err = ah.db.Exec(ctx,
+		`UPDATE salon_settings SET support_user_id = $1`, supportID)
+	if err != nil {
+		log.Printf("❌ Ошибка обновления ID поддержки: %v\n", err)
+		return c.Send("❌ Ошибка при сохранении")
+	}
+
+	ah.stateManager.ResetState(userID)
+
+	text := fmt.Sprintf("✅ ID поддержки установлен: %d", supportID)
+	return c.Send(text)
+}
+
 // Helper function
 func isValidTimeFormat(timeStr string) bool {
 	if len(timeStr) != 5 || timeStr[2] != ':' {
@@ -479,4 +590,85 @@ func isValidTimeFormat(timeStr string) bool {
 	h, m := 0, 0
 	n, _ := fmt.Sscanf(timeStr, "%d:%d", &h, &m)
 	return n == 2 && h >= 0 && h < 24 && m >= 0 && m < 60
+}
+
+// ========== ПОДТВЕРЖДЕНИЕ ЧЕКОВ ==========
+
+// HandleConfirmReceipt подтверждает чек администратором
+func (ah *AdminHandler) HandleConfirmReceipt(c telebot.Context, appointmentID int) error {
+	ctx := context.Background()
+
+	log.Printf("✅ [ЧЕК] Админ подтвердил чек для записи %d\n", appointmentID)
+
+	// Получаем информацию о записи
+	row := ah.db.QueryRow(ctx,
+		`SELECT user_id, appointment_num, amount FROM appointments WHERE id = $1`, appointmentID)
+
+	var userID int64
+	var appointmentNum int
+	var amount float64
+
+	if err := row.Scan(&userID, &appointmentNum, &amount); err != nil {
+		log.Printf("❌ Ошибка получения записи: %v\n", err)
+		return c.Edit("❌ Запись не найдена")
+	}
+
+	// Обновляем статус чека
+	_, err := ah.db.Exec(ctx,
+		`UPDATE appointments SET receipt_status = $1, updated_at = NOW() WHERE id = $2`,
+		models.ReceiptStatusConfirmed, appointmentID)
+	if err != nil {
+		log.Printf("❌ Ошибка обновления статуса чека: %v\n", err)
+		return c.Edit("❌ Ошибка при подтверждении")
+	}
+
+	log.Printf("✅ Чек для записи #%d подтвержден\n", appointmentNum)
+
+	// Отправляем уведомление клиенту
+	user := &telebot.User{ID: userID}
+	msg := fmt.Sprintf("✅ Ваш чек #%d подтвержден!\n\nЗапись на услугу подтверждена.", appointmentNum)
+	if _, err := ah.bot.Send(user, msg); err != nil {
+		log.Printf("⚠️ Ошибка отправки подтверждения клиенту: %v\n", err)
+	}
+
+	return c.Edit(fmt.Sprintf("✅ Чек #%d подтвержден", appointmentNum))
+}
+
+// HandleRejectReceipt отклоняет чек администратором
+func (ah *AdminHandler) HandleRejectReceipt(c telebot.Context, appointmentID int) error {
+	ctx := context.Background()
+
+	log.Printf("❌ [ЧЕК] Админ отклонил чек для записи %d\n", appointmentID)
+
+	// Получаем информацию о записи
+	row := ah.db.QueryRow(ctx,
+		`SELECT user_id, appointment_num FROM appointments WHERE id = $1`, appointmentID)
+
+	var userID int64
+	var appointmentNum int
+
+	if err := row.Scan(&userID, &appointmentNum); err != nil {
+		log.Printf("❌ Ошибка получения записи: %v\n", err)
+		return c.Edit("❌ Запись не найдена")
+	}
+
+	// Обновляем статус чека
+	_, err := ah.db.Exec(ctx,
+		`UPDATE appointments SET receipt_status = $1, updated_at = NOW() WHERE id = $2`,
+		models.ReceiptStatusRejected, appointmentID)
+	if err != nil {
+		log.Printf("❌ Ошибка обновления статуса чека: %v\n", err)
+		return c.Edit("❌ Ошибка при отклонении")
+	}
+
+	log.Printf("✅ Чек для записи #%d отклонен\n", appointmentNum)
+
+	// Отправляем уведомление клиенту
+	user := &telebot.User{ID: userID}
+	msg := fmt.Sprintf("❌ Ваш чек #%d был отклонен.\n\nПожалуйста, загрузите новый чек. У вас есть 30 минут.", appointmentNum)
+	if _, err := ah.bot.Send(user, msg); err != nil {
+		log.Printf("⚠️ Ошибка отправки отклонения клиенту: %v\n", err)
+	}
+
+	return c.Edit(fmt.Sprintf("❌ Чек #%d отклонен", appointmentNum))
 }

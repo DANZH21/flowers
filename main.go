@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -175,6 +176,11 @@ func main() {
 			return adminHandler.HandleAdminSetName(c)
 		}
 
+		if data == "admin_set_address" {
+			c.Respond()
+			return adminHandler.HandleAdminSetAddress(c)
+		}
+
 		if data == "admin_set_open" {
 			c.Respond()
 			return adminHandler.HandleAdminSetScheduleOpen(c)
@@ -193,6 +199,31 @@ func main() {
 		if data == "admin_set_prepay" {
 			c.Respond()
 			return adminHandler.HandleAdminSetPrepayPercent(c)
+		}
+
+		if data == "admin_set_support" {
+			c.Respond()
+			return adminHandler.HandleAdminSetSupportID(c)
+		}
+
+		// Подтверждение чека администратором
+		if len(data) > 15 && data[:15] == "confirm_receipt_" {
+			var appointmentID int
+			_, err := fmt.Sscanf(data, "confirm_receipt_%d", &appointmentID)
+			if err == nil {
+				c.Respond()
+				return adminHandler.HandleConfirmReceipt(c, appointmentID)
+			}
+		}
+
+		// Отклонение чека администратором
+		if len(data) > 14 && data[:14] == "reject_receipt_" {
+			var appointmentID int
+			_, err := fmt.Sscanf(data, "reject_receipt_%d", &appointmentID)
+			if err == nil {
+				c.Respond()
+				return adminHandler.HandleRejectReceipt(c, appointmentID)
+			}
 		}
 
 		c.Respond()
@@ -217,12 +248,18 @@ func main() {
 			return clientHandler.HandlePhoneInput(c)
 		case models.StateAdminSetSalonName:
 			return adminHandler.HandleAdminInputSalonName(c)
+		case models.StateAdminSetAddress:
+			return adminHandler.HandleAdminInputAddress(c)
 		case models.StateAdminSetScheduleOpen:
 			return adminHandler.HandleAdminInputScheduleOpen(c)
+		case models.StateAdminSetScheduleClose:
+			return adminHandler.HandleAdminInputScheduleClose(c)
 		case models.StateAdminSetReminderHours:
 			return adminHandler.HandleAdminInputReminderHours(c)
 		case models.StateAdminSetPrepayPercent:
 			return adminHandler.HandleAdminInputPrepayPercent(c)
+		case models.StateAdminSetSupportID:
+			return adminHandler.HandleAdminInputSupportID(c)
 		}
 
 		return c.Send("❓ Я не знаю как ответить на это. Нажмите /start для главного меню.")

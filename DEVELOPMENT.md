@@ -398,6 +398,60 @@ docker-compose logs postgres
 1. **Используйте индексы** - для часто запрашиваемых полей
 2. **Кэшируйте** - часто используемые данные (настройки магазина)
 3. **Пулируйте соединения** - используется pgxpool автоматически
+
+## Receipt Approval Workflow (Подтверждение чеков)
+
+### Для Kaspi Red платежей
+
+Когда клиент платит через Kaspi Red и загружает скриншот чека:
+
+1. **Чек загружается** → сохраняется на S3 → `receipt_status = 'pending'`
+2. **Админ уведомляется** → получает сообщение с кнопками "✅ Подтвердить чек" и "❌ Отклонить"
+3. **Админ выбирает**:
+   - ✅ Approve → `receipt_status = 'confirmed'`, клиент уведомлен, запись подтверждена
+   - ❌ Reject → `receipt_status = 'rejected'`, клиент может загрузить новый (30 мин deadline)
+
+### Код обработчиков
+
+```go
+// handlers/admin.go
+
+// Подтверждение чека
+func (ah *AdminHandler) HandleConfirmReceipt(c telebot.Context, appointmentID int) error {
+    // Обновляет receipt_status = 'confirmed'
+    // Уведомляет клиента об успехе
+}
+
+// Отклонение чека
+func (ah *AdminHandler) HandleRejectReceipt(c telebot.Context, appointmentID int) error {
+    // Обновляет receipt_status = 'rejected'
+    // Уведомляет клиента для переполучения
+}
+```
+
+### Callback data format
+
+```go
+// Подтверждение
+"confirm_receipt_{appointmentID}"
+
+// Отклонение
+"reject_receipt_{appointmentID}"
+```
+
+### Database fields
+
+- `receipt_status` - 'pending' | 'confirmed' | 'rejected' | NULL
+- `receipt_url` - URL чека на S3
+- `receipt_deadline` - время истечения (30 мин от загрузки)
+
+### Касается файлов
+
+- [RECEIPT_APPROVAL.md](./RECEIPT_APPROVAL.md) - полная документация
+- `handlers/admin.go` - HandleConfirmReceipt, HandleRejectReceipt
+- `handlers/client.go` - notifyAdminNewAppointment, createAppointment
+- `models/models.go` - ReceiptStatus constants
+- `main.go` - callback handlers
 4. **Избегайте N+1** - загружайте все данные в одном запросе
 5. **Асинхронные операции** - используйте горутины для долгих операций
 

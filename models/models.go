@@ -96,6 +96,7 @@ type Appointment struct {
 	CustomerPhone   string
 	Status          string // scheduled, confirmed, completed, cancelled, no_show
 	ReceiptURL      *string
+	ReceiptStatus   string // pending, confirmed, rejected (для Kaspi платежей)
 	ReceiptDeadline *time.Time
 	ReminderSent    bool
 	CreatedAt       time.Time
@@ -109,6 +110,13 @@ const (
 	AppointmentStatusCompleted = "completed"
 	AppointmentStatusCancelled = "cancelled"
 	AppointmentStatusNoShow    = "no_show"
+)
+
+// ReceiptStatus constants
+const (
+	ReceiptStatusPending   = "pending"
+	ReceiptStatusConfirmed = "confirmed"
+	ReceiptStatusRejected  = "rejected"
 )
 
 // PaymentType constants

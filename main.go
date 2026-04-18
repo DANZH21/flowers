@@ -96,18 +96,21 @@ func main() {
 
 	// Главное меню
 	bot.Handle(&telebot.Btn{Unique: "main_menu"}, func(c telebot.Context) error {
+		log.Printf("🏠 [BUTTON] Пользователь %d нажал 'Меню'\n", c.Sender().ID)
 		c.Respond()
 		return clientHandler.HandleStart(c)
 	})
 
 	// Клиент - запись на услугу
 	bot.Handle(&telebot.Btn{Unique: "book_appointment"}, func(c telebot.Context) error {
+		log.Printf("📅 [BUTTON] Пользователь %d нажал 'Записаться'\n", c.Sender().ID)
 		c.Respond()
 		return clientHandler.HandleBookAppointment(c)
 	})
 
 	// Клиент - мои записи
 	bot.Handle(&telebot.Btn{Unique: "my_appointments"}, func(c telebot.Context) error {
+		log.Printf("📋 [BUTTON] Пользователь %d нажал 'Мои записи'\n", c.Sender().ID)
 		c.Respond()
 		return clientHandler.HandleMyAppointments(c)
 	})
@@ -115,18 +118,24 @@ func main() {
 	// Выбор услуги
 	bot.Handle(telebot.OnCallback, func(c telebot.Context) error {
 		data := c.Callback().Data
+		userID := c.Sender().ID
+
+		log.Printf("🔘 [CALLBACK] Пользователь %d нажал кнопку: %s\n", userID, data)
 
 		if len(data) > 15 && data[:15] == "select_service_" {
 			var serviceID int
 			_, err := sscanf(data, "select_service_%d", &serviceID)
 			if err == nil {
+				log.Printf("✅ [CALLBACK] Маршрутизирую на HandleSelectService(%d)\n", serviceID)
 				c.Respond()
 				return clientHandler.HandleSelectService(c, serviceID)
 			}
+			log.Printf("❌ [CALLBACK] Ошибка парсинга select_service: %v\n", err)
 		}
 
 		if len(data) > 12 && data[:12] == "select_date_" {
 			dateStr := data[12:]
+			log.Printf("✅ [CALLBACK] Маршрутизирую на HandleSelectDate(%s)\n", dateStr)
 			c.Respond()
 			return clientHandler.HandleSelectDate(c, dateStr)
 		}
@@ -135,73 +144,88 @@ func main() {
 			// Формат: select_time_2024-01-15_14:30
 			parts := parseDateTimeCallback(data[12:])
 			if len(parts) == 2 {
+				log.Printf("✅ [CALLBACK] Маршрутизирую на HandleSelectTime(%s, %s)\n", parts[0], parts[1])
 				c.Respond()
 				return clientHandler.HandleSelectTime(c, parts[0], parts[1])
 			}
+			log.Printf("❌ [CALLBACK] Ошибка парсинга select_time: %v\n", data)
 		}
 
 		if len(data) > 15 && data[:15] == "payment_kaspi_" {
+			log.Printf("✅ [CALLBACK] Маршрутизирую на HandlePaymentKaspi\n")
 			c.Respond()
-			return clientHandler.HandlePaymentKaspi(c, c.Sender().ID)
+			return clientHandler.HandlePaymentKaspi(c, userID)
 		}
 
 		if len(data) > 13 && data[:13] == "payment_cash_" {
+			log.Printf("✅ [CALLBACK] Маршрутизирую на HandlePaymentCash\n")
 			c.Respond()
-			return clientHandler.HandlePaymentCash(c, c.Sender().ID)
+			return clientHandler.HandlePaymentCash(c, userID)
 		}
 
 		// Админ панель
 		if data == "admin_appointments" {
+			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminAppointments\n", userID)
 			c.Respond()
 			return adminHandler.HandleAdminAppointments(c)
 		}
 
 		if data == "admin_services" {
+			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminServices\n", userID)
 			c.Respond()
 			return adminHandler.HandleAdminServices(c)
 		}
 
 		if data == "admin_settings" {
+			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminSettings\n", userID)
 			c.Respond()
 			return adminHandler.HandleAdminSettings(c)
 		}
 
 		if data == "admin_add_service" {
+			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminAddService\n", userID)
 			c.Respond()
 			return adminHandler.HandleAdminAddService(c)
 		}
 
 		if data == "admin_set_name" {
+			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminSetName\n", userID)
 			c.Respond()
 			return adminHandler.HandleAdminSetName(c)
 		}
 
 		if data == "admin_set_address" {
+			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminSetAddress\n", userID)
 			c.Respond()
 			return adminHandler.HandleAdminSetAddress(c)
 		}
 
 		if data == "admin_set_open" {
+			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminSetScheduleOpen\n", userID)
 			c.Respond()
 			return adminHandler.HandleAdminSetScheduleOpen(c)
 		}
 
 		if data == "admin_set_close" {
+			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminSetScheduleClose\n", userID)
 			c.Respond()
 			return adminHandler.HandleAdminSetScheduleClose(c)
 		}
 
 		if data == "admin_set_reminder" {
+			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminSetReminderHours\n", userID)
 			c.Respond()
 			return adminHandler.HandleAdminSetReminderHours(c)
 		}
 
 		if data == "admin_set_prepay" {
+			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminSetPrepayPercent\n", userID)
 			c.Respond()
 			return adminHandler.HandleAdminSetPrepayPercent(c)
 		}
 
 		if data == "admin_set_support" {
+			log.Printf("✅ [CALLBACK] Админ %d -> HandleAdminSetSupportID\n", userID)
 			c.Respond()
 			return adminHandler.HandleAdminSetSupportID(c)
 		}
@@ -211,6 +235,7 @@ func main() {
 			var appointmentID int
 			_, err := fmt.Sscanf(data, "confirm_receipt_%d", &appointmentID)
 			if err == nil {
+				log.Printf("✅ [CALLBACK] Админ %d -> HandleConfirmReceipt(%d)\n", userID, appointmentID)
 				c.Respond()
 				return adminHandler.HandleConfirmReceipt(c, appointmentID)
 			}
@@ -221,11 +246,26 @@ func main() {
 			var appointmentID int
 			_, err := fmt.Sscanf(data, "reject_receipt_%d", &appointmentID)
 			if err == nil {
+				log.Printf("✅ [CALLBACK] Админ %d -> HandleRejectReceipt(%d)\n", userID, appointmentID)
 				c.Respond()
 				return adminHandler.HandleRejectReceipt(c, appointmentID)
 			}
 		}
 
+		// Кнопки главного меню
+		if data == "about" {
+			log.Printf("📋 [CALLBACK] Пользователь %d запросил информацию о салоне\n", userID)
+			c.Respond()
+			return c.Send("ℹ️ *BEAUTY SALON*\n\nМы предоставляем профессиональные услуги маникюра и педикюра 💅\n\n📍 Адрес: Алматы\n⏰ Режим работы: 10:00 - 20:00\n📞 Контакт: +7 700 000 00 00")
+		}
+
+		if data == "support" {
+			log.Printf("💬 [CALLBACK] Пользователь %d запросил поддержку\n", userID)
+			c.Respond()
+			return c.Send("📞 *Служба поддержки*\n\nЕсли у вас есть вопросы, пожалуйста свяжитесь с нами:\n\n📧 Email: support@salon.kz\n💬 Telegram: @salon_support\n☎️ WhatsApp: +7 700 000 00 00")
+		}
+
+		log.Printf("⚠️ [CALLBACK] Неизвестная кнопка от пользователя %d: %s\n", userID, data)
 		c.Respond()
 		return c.Edit("❌ Неизвестная кнопка")
 	})

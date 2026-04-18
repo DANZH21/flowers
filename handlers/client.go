@@ -127,7 +127,7 @@ func (ch *ClientHandler) HandleBookAppointment(c telebot.Context) error {
 	rows, err := ch.db.Query(ctx,
 		`SELECT id, name, price, duration_min FROM services WHERE is_available = true ORDER BY name`)
 	if err != nil {
-		log.Printf("❌ Ошибка получения услуг: %v\n", err)
+		log.Printf("❌ [УСЛУГИ] Ошибка получения услуг из БД: %v\n", err)
 		return c.Edit("❌ Ошибка при загрузке услуг")
 	}
 	defer rows.Close()
@@ -141,6 +141,7 @@ func (ch *ClientHandler) HandleBookAppointment(c telebot.Context) error {
 			log.Printf("⚠️ Ошибка сканирования услуги: %v\n", err)
 			continue
 		}
+		log.Printf("   ✅ Услуга: %s (ID:%d, цена:%g, длит:%d мин)\n", name, id, price, duration)
 		services = append(services, map[string]interface{}{
 			"id":       id,
 			"name":     name,
@@ -150,9 +151,11 @@ func (ch *ClientHandler) HandleBookAppointment(c telebot.Context) error {
 	}
 
 	if len(services) == 0 {
-		log.Printf("⚠️ Нет доступных услуг\n")
-		return c.Edit("😔 К сожалению, услуги недоступны")
+		log.Printf("⚠️ [УСЛУГИ] Нет доступных услуг в базе (is_available=true)\n")
+		return c.Edit("😔 К сожалению, услуги недоступны\n\nАдминистратор еще не добавил услуги. Пожалуйста, попробуйте позже.")
 	}
+
+	log.Printf("✅ [УСЛУГИ] Загружено %d услуг для пользователя %d\n", len(services), userID)
 
 	text := "🌸 Выберите услугу:\n\n"
 	for _, svc := range services {

@@ -445,8 +445,6 @@ func (ah *AdminHandler) HandleAdminInputScheduleClose(c telebot.Context) error {
 
 	text := fmt.Sprintf("✅ Время закрытия установлено: %s", timeStr)
 	return c.Send(text)
-
-	return err
 }
 
 // HandleAdminSetReminderHours начинает изменение напоминания

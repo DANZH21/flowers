@@ -135,7 +135,7 @@ func (ah *AdminHandler) HandleAdminStats(c telebot.Context, period string) error
 
 	switch period {
 	case "today":
-		periodLabel = "за ТУДЭЙ (сегодня)"
+		periodLabel = "за СЕГОДНЯ"
 		dateFilter = "AND created_at >= CURRENT_DATE"
 	case "week":
 		periodLabel = "за НЕДЕЛЮ"
@@ -403,6 +403,11 @@ func (ah *AdminHandler) HandleAdminSettings(c telebot.Context) error {
 		protectionText = fmt.Sprintf("✅ ВКЛ (мин. %d заказ(ов))", salonSettings["protection_min_orders"])
 	}
 
+	masterModeText := "👩‍🦰 Один мастер (запрет параллельных записей)"
+	if isOneMaster, ok := salonSettings["is_one_master"].(bool); ok && !isOneMaster {
+		masterModeText = "👯‍♀️ Несколько мастеров (параллельные записи разрешены)"
+	}
+
 	text := fmt.Sprintf(
 		"⚙️ НАСТРОЙКИ САЛОНА\n\n"+
 			"Название: %s\n"+
@@ -410,11 +415,12 @@ func (ah *AdminHandler) HandleAdminSettings(c telebot.Context) error {
 			"📅 Рабочее время: %s - %s\n"+
 			"🔔 Напоминание за: %d ч\n"+
 			"💳 Предоплата: %d%%\n"+
-			"🛡 Защита (наличные после N): %s\n",
+			"🛡 Защита (наличные после N): %s\n"+
+			"⏱ Режим: %s\n",
 		salonSettings["salon_name"], salonSettings["address"],
 		salonSettings["schedule_open"], salonSettings["schedule_close"],
 		salonSettings["reminder_hours"], salonSettings["prepay_percent"],
-		protectionText)
+		protectionText, masterModeText)
 
 	menu := &telebot.ReplyMarkup{}
 	menu.Inline(
@@ -436,6 +442,9 @@ func (ah *AdminHandler) HandleAdminSettings(c telebot.Context) error {
 		),
 		menu.Row(
 			menu.Data("💳 Kaspi Ссылка", "admin_set_kaspi"),
+		),
+		menu.Row(
+			menu.Data("🔄 Изменить режим мастеров", "admin_toggle_master"),
 		),
 		menu.Row(
 			menu.Data("💬 Поддержка ID", "admin_set_support"),
@@ -477,6 +486,32 @@ func (ah *AdminHandler) HandleAdminSetChannel(c telebot.Context) error {
 		ah.stateManager.AddMessageToDelete(userID, msg.ID)
 	}
 	return err
+}
+
+// HandleAdminToggleMaster переключает режим одного мастера
+func (ah *AdminHandler) HandleAdminToggleMaster(c telebot.Context) error {
+	ctx := context.Background()
+
+	// Получаем текущее значение
+	salonSettings, err := ah.db.GetSalonSettings(ctx)
+	if err != nil {
+		return sendOrEdit(c, "❌ Ошибка")
+	}
+
+	isOneMaster := true
+	if val, ok := salonSettings["is_one_master"].(bool); ok {
+		isOneMaster = val
+	}
+
+	// Инвертируем
+	newVal := !isOneMaster
+	_, err = ah.db.Exec(ctx, `UPDATE salon_settings SET is_one_master = $1`, newVal)
+	if err != nil {
+		log.Printf("❌ Ошибка обновления режима мастера: %v\n", err)
+		return sendOrEdit(c, "❌ Ошибка при сохранении")
+	}
+
+	return ah.HandleAdminSettings(c)
 }
 
 // HandleAdminSetProtection начинает настройку защиты

@@ -79,17 +79,17 @@ func (d *Database) GetSalonSettings(ctx context.Context) (map[string]interface{}
 		SELECT 
 			id, salon_name, address, support_user_id, kaspi_link, about_channel_link,
 			schedule_open, schedule_close, reminder_hours, prepay_percent,
-			protection_enabled, protection_min_orders
+			protection_enabled, protection_min_orders, is_one_master
 		FROM salon_settings LIMIT 1
 	`)
 
 	var id, reminderHours, prepayPercent, protectionMinOrders int
 	var salonName, address, kaspiLink, aboutChannelLink, scheduleOpen, scheduleClose string
 	var supportUserID *int64
-	var protectionEnabled bool
+	var protectionEnabled, isOneMaster bool
 
 	if err := row.Scan(&id, &salonName, &address, &supportUserID, &kaspiLink, &aboutChannelLink,
-		&scheduleOpen, &scheduleClose, &reminderHours, &prepayPercent, &protectionEnabled, &protectionMinOrders); err != nil {
+		&scheduleOpen, &scheduleClose, &reminderHours, &prepayPercent, &protectionEnabled, &protectionMinOrders, &isOneMaster); err != nil {
 		return nil, err
 	}
 
@@ -105,5 +105,6 @@ func (d *Database) GetSalonSettings(ctx context.Context) (map[string]interface{}
 		"prepay_percent":        prepayPercent,
 		"protection_enabled":    protectionEnabled,
 		"protection_min_orders": protectionMinOrders,
+		"is_one_master":         isOneMaster,
 	}, nil
 }

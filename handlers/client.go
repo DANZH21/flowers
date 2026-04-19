@@ -315,6 +315,16 @@ func (ch *ClientHandler) showTimeSelection(c telebot.Context, userID int64, date
 	scheduleOpen := salonSettings["schedule_open"].(string)
 	scheduleClose := salonSettings["schedule_close"].(string)
 
+	isOneMaster := true
+	if val, ok := salonSettings["is_one_master"].(bool); ok {
+		isOneMaster = val
+	}
+
+	session := ch.stateManager.GetUserSession(userID)
+	serviceID := session.AppointmentDraft.ServiceID
+	var serviceDuration int
+	ch.db.QueryRow(ctx, `SELECT duration_min FROM services WHERE id = $1`, serviceID).Scan(&serviceDuration)
+
 	// Парсим время
 	openHour, _ := strconv.Atoi(scheduleOpen[:2])
 	closeHour, _ := strconv.Atoi(scheduleClose[:2])
@@ -327,16 +337,78 @@ func (ch *ClientHandler) showTimeSelection(c telebot.Context, userID int64, date
 	var btnRows []telebot.Row
 	var allTimeBtns []telebot.Btn
 
+	// Для фильтрации занятого времени
+	startOfDay, _ := time.ParseInLocation("2006-01-02", dateStr, time.Local)
+	endOfDay := startOfDay.Add(24 * time.Hour)
+	now := time.Now()
+
+	type existingAppt struct {
+		start time.Time
+		end   time.Time
+	}
+	var existing []existingAppt
+
+	if isOneMaster {
+		rows, err := ch.db.Query(ctx, `
+			SELECT a.appointment_time, s.duration_min 
+			FROM appointments a
+			JOIN services s ON a.service_id = s.id
+			WHERE a.appointment_time >= $1 AND a.appointment_time < $2
+			AND a.status IN ('scheduled', 'confirmed')
+		`, startOfDay, endOfDay)
+		if err == nil {
+			for rows.Next() {
+				var aptTime time.Time
+				var dur int
+				if err := rows.Scan(&aptTime, &dur); err == nil {
+					existing = append(existing, existingAppt{
+						start: aptTime,
+						end:   aptTime.Add(time.Duration(dur) * time.Minute),
+					})
+				}
+			}
+			rows.Close()
+		}
+	}
+
 	// Показываем каждый час в рабочее время
 	for hour := openHour; hour < closeHour; hour++ {
-		for min := 0; min < 60; min += 30 {
-			timeStr := fmt.Sprintf("%02d:%02d", hour, min)
+		for m := 0; m < 60; m += 30 {
+			timeStr := fmt.Sprintf("%02d:%02d", hour, m)
+
+			slotStart := startOfDay.Add(time.Duration(hour)*time.Hour + time.Duration(m)*time.Minute)
+			slotEnd := slotStart.Add(time.Duration(serviceDuration) * time.Minute)
+
+			// 1. Если время прошло
+			if slotStart.Before(now) {
+				continue
+			}
+
+			// 2. Если накладывается на другие записи при одном мастере
+			isOverlapping := false
+			if isOneMaster {
+				for _, apt := range existing {
+					if slotStart.Before(apt.end) && slotEnd.After(apt.start) {
+						isOverlapping = true
+						break
+					}
+				}
+			}
+
+			if isOverlapping {
+				continue
+			}
+
 			btn := menu.Data(
 				timeStr,
 				fmt.Sprintf("select_time_%s_%s", dateStr, timeStr),
 			)
 			allTimeBtns = append(allTimeBtns, btn)
 		}
+	}
+
+	if len(allTimeBtns) == 0 {
+		text = fmt.Sprintf("На %s нет свободного времени. Выберите другую дату.", dateStr)
 	}
 
 	// Разбиваем кнопки по 3 в ряд
@@ -348,16 +420,15 @@ func (ch *ClientHandler) showTimeSelection(c telebot.Context, userID int64, date
 		btnRows = append(btnRows, menu.Row(allTimeBtns[i:end]...))
 	}
 
+	btnRows = append(btnRows, menu.Row(
+		menu.Data("🔙 Назад к датам", "book_appointment"),
+	))
+
 	if len(btnRows) > 0 {
 		menu.Inline(btnRows...)
 	}
 
-	msg, err := ch.bot.Send(c.Sender(), text, menu)
-	if err == nil {
-		ch.stateManager.AddMessageToDelete(userID, msg.ID)
-	}
-
-	return err
+	return sendOrEdit(c, text, menu)
 }
 
 // HandleSelectTime обрабатывает выбор времени

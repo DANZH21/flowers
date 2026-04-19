@@ -115,7 +115,7 @@ func main() {
 		log.Printf("   IsAdmin: %v\n", isAdmin)
 		if !isAdmin {
 			log.Printf("   ❌ Пользователь %d не является администратором\n", userID)
-			return sendOrEdit(c, "❌ Доступ запрещён. Вы не администратор.\n\nАдминистратор ID: " + fmt.Sprintf("%d", userID))
+			return sendOrEdit(c, "❌ Доступ запрещён. Вы не администратор.\n\nАдминистратор ID: "+fmt.Sprintf("%d", userID))
 		}
 		log.Printf("   ✅ Пользователь %d имеет права администратора\n", userID)
 		return adminHandler.HandleAdminMenu(c)
@@ -317,6 +317,9 @@ func main() {
 		case "admin_set_channel":
 			c.Respond()
 			return adminHandler.HandleAdminSetChannel(c)
+		case "admin_toggle_master":
+			c.Respond()
+			return adminHandler.HandleAdminToggleMaster(c)
 		case "admin_stats":
 			c.Respond()
 			return adminHandler.HandleAdminStats(c, "all")
@@ -611,8 +614,8 @@ func min(a, b int) int {
 }
 
 func sendOrEdit(c telebot.Context, msg interface{}, opts ...interface{}) error {
-if c.Callback() != nil {
-return c.Edit(msg, opts...)
-}
-return c.Send(msg, opts...)
+	if c.Callback() != nil {
+		return c.Edit(msg, opts...)
+	}
+	return c.Send(msg, opts...)
 }

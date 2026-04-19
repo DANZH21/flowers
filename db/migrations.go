@@ -84,6 +84,9 @@ func (d *Database) RunMigrations(ctx context.Context, cfg *config.Config) error 
 		// Защита записей (наличные только после N заказов)
 		`ALTER TABLE salon_settings ADD COLUMN IF NOT EXISTS protection_enabled BOOLEAN DEFAULT FALSE`,
 		`ALTER TABLE salon_settings ADD COLUMN IF NOT EXISTS protection_min_orders INT DEFAULT 0`,
+
+		// Один мастер (запрет параллельных записей)
+		`ALTER TABLE salon_settings ADD COLUMN IF NOT EXISTS is_one_master BOOLEAN DEFAULT FALSE`,
 	}
 
 	for _, migration := range migrations {

@@ -311,9 +311,30 @@ func main() {
 		case "admin_set_protection":
 			c.Respond()
 			return adminHandler.HandleAdminSetProtection(c)
+		case "admin_set_kaspi":
+			c.Respond()
+			return adminHandler.HandleAdminSetKaspi(c)
+		case "admin_set_channel":
+			c.Respond()
+			return adminHandler.HandleAdminSetChannel(c)
 		case "admin_stats":
 			c.Respond()
-			return c.Send("📊 Статистика (в разработке)")
+			return adminHandler.HandleAdminStats(c, "all")
+		case "admin_stats_today":
+			c.Respond()
+			return adminHandler.HandleAdminStats(c, "today")
+		case "admin_stats_week":
+			c.Respond()
+			return adminHandler.HandleAdminStats(c, "week")
+		case "admin_stats_month":
+			c.Respond()
+			return adminHandler.HandleAdminStats(c, "month")
+		case "admin_stats_all":
+			c.Respond()
+			return adminHandler.HandleAdminStats(c, "all")
+		case "admin_broadcast":
+			c.Respond()
+			return adminHandler.HandleAdminBroadcast(c)
 		}
 
 		// Если ничего не подошло
@@ -360,6 +381,12 @@ func main() {
 			return adminHandler.HandleAdminInputSupportID(c)
 		case models.StateAdminSetProtection:
 			return adminHandler.HandleAdminInputProtection(c)
+		case models.StateAdminSetKaspiLink:
+			return adminHandler.HandleAdminInputKaspi(c)
+		case models.StateAdminSetChannelLink:
+			return adminHandler.HandleAdminInputChannel(c)
+		case models.StateAdminBroadcast:
+			return adminHandler.HandleAdminInputBroadcast(c)
 		case models.StateAdminEditServiceName:
 			return handleEditServiceName(c, stateManager, database, adminHandler)
 		case models.StateAdminEditServicePrice:
@@ -380,6 +407,9 @@ func main() {
 
 		if state == models.StateAwaitingReceipt {
 			return clientHandler.HandleReceiptUpload(c)
+		}
+		if state == models.StateAdminBroadcast {
+			return adminHandler.HandleAdminInputBroadcast(c)
 		}
 
 		return c.Send("❌ В данный момент фото не требуются")

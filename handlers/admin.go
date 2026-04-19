@@ -113,10 +113,141 @@ func (ah *AdminHandler) HandleAdminMenu(c telebot.Context) error {
 			menu.Data("⚙️ Настройки", "admin_settings"),
 			menu.Data("📊 Статистика", "admin_stats"),
 		),
+		menu.Row(
+			menu.Data("📣 Массовая рассылка", "admin_broadcast"),
+		),
 	)
 
 	log.Printf("✅ [ADMIN] Показываю панель настроек\n")
 	return c.Send(text, menu)
+}
+
+// ========== СТАТИСТИКА ==========
+
+// HandleAdminStats показывает статистику салона за период (today, week, month, all)
+func (ah *AdminHandler) HandleAdminStats(c telebot.Context, period string) error {
+	ctx := context.Background()
+
+	var totalUsers, totalAppointments, completedAppointments int
+	var totalRevenue float64
+	var periodLabel string
+	var dateFilter string
+
+	switch period {
+	case "today":
+		periodLabel = "за ТУДЭЙ (сегодня)"
+		dateFilter = "AND created_at >= CURRENT_DATE"
+	case "week":
+		periodLabel = "за НЕДЕЛЮ"
+		dateFilter = "AND created_at >= CURRENT_DATE - INTERVAL '7 days'"
+	case "month":
+		periodLabel = "за МЕСЯЦ"
+		dateFilter = "AND created_at >= CURRENT_DATE - INTERVAL '1 month'"
+	default:
+		periodLabel = "за ВСЁ ВРЕМЯ"
+		dateFilter = ""
+	}
+
+	// Клиенты за период (если надо всех, то убираем дату)
+	if period == "all" {
+		ah.db.QueryRow(ctx, "SELECT COUNT(*) FROM users").Scan(&totalUsers)
+	} else {
+		ah.db.QueryRow(ctx, fmt.Sprintf("SELECT COUNT(*) FROM users WHERE 1=1 %s", dateFilter)).Scan(&totalUsers)
+	}
+
+	ah.db.QueryRow(ctx, fmt.Sprintf("SELECT COUNT(*) FROM appointments WHERE 1=1 %s", dateFilter)).Scan(&totalAppointments)
+	ah.db.QueryRow(ctx, fmt.Sprintf("SELECT COUNT(*) FROM appointments WHERE status = 'completed' %s", dateFilter)).Scan(&completedAppointments)
+	ah.db.QueryRow(ctx, fmt.Sprintf("SELECT COALESCE(SUM(amount), 0) FROM appointments WHERE status = 'completed' %s", dateFilter)).Scan(&totalRevenue)
+
+	text := fmt.Sprintf(
+		"📊 <b>CRM: Статистика салона %s</b>\n\n"+
+			"👥 Новых клиентов: <b>%d</b>\n"+
+			"📅 Всего записей: <b>%d</b>\n"+
+			"✅ Завершено (оплачено): <b>%d</b>\n\n"+
+			"💰 Выручка: <b>%.2f ₸</b>\n",
+		periodLabel, totalUsers, totalAppointments, completedAppointments, totalRevenue)
+
+	menu := &telebot.ReplyMarkup{}
+	menu.Inline(
+		menu.Row(
+			menu.Data("📅 Сегодня", "admin_stats_today"),
+			menu.Data("📆 Неделя", "admin_stats_week"),
+		),
+		menu.Row(
+			menu.Data("🗓 Месяц", "admin_stats_month"),
+			menu.Data("🌍 Всё время", "admin_stats_all"),
+		),
+		menu.Row(
+			menu.Data("🔙 Назад", "admin_menu"),
+		),
+	)
+
+	if c.Callback() != nil {
+		return c.Edit(text, telebot.ModeHTML, menu)
+	}
+	return c.Send(text, telebot.ModeHTML, menu)
+}
+
+// ========== РАССЫЛКА ==========
+
+// HandleAdminBroadcast начинает массовую рассылку
+func (ah *AdminHandler) HandleAdminBroadcast(c telebot.Context) error {
+	userID := c.Sender().ID
+
+	session := ah.stateManager.GetUserSession(userID)
+	session.State = models.StateAdminBroadcast
+	ah.stateManager.SetUserSession(userID, session)
+
+	text := "📣 <b>Массовая рассылка</b>\n\nОтправьте текст или фото, которое хотите разослать всем зарегистрированным клиентам. Рассылку получат все пользователи из базы.\n\n" +
+		"<i>Для отмены нажмите /cancel.</i>"
+
+	menu := &telebot.ReplyMarkup{}
+	menu.Inline(menu.Row(menu.Data("❌ Отмена", "admin_menu")))
+
+	msg, err := ah.bot.Send(c.Sender(), text, telebot.ModeHTML, menu)
+	if err == nil {
+		ah.stateManager.AddMessageToDelete(userID, msg.ID)
+	}
+	return err
+}
+
+// HandleAdminInputBroadcast обрабатывает и отправляет рассылку
+func (ah *AdminHandler) HandleAdminInputBroadcast(c telebot.Context) error {
+	ctx := context.Background()
+	userID := c.Sender().ID
+
+	ah.stateManager.ResetState(userID)
+
+	rows, err := ah.db.Query(ctx, "SELECT telegram_id FROM users")
+	if err != nil {
+		return c.Send("❌ Ошибка получения пользователей базы")
+	}
+	defer rows.Close()
+
+	var userIDs []int64
+	for rows.Next() {
+		var uid int64
+		if err := rows.Scan(&uid); err == nil {
+			userIDs = append(userIDs, uid)
+		}
+	}
+
+	go func() {
+		successCount := 0
+		failCount := 0
+		for _, uid := range userIDs {
+			_, err := ah.bot.Copy(&telebot.User{ID: uid}, c.Message())
+			if err != nil {
+				failCount++
+				log.Printf("❌ Не удалось отправить рассылку %d: %v", uid, err)
+			} else {
+				successCount++
+			}
+		}
+		ah.bot.Send(&telebot.User{ID: userID}, fmt.Sprintf("✅ <b>Рассылка завершена!</b>\n\nУспешно доставлено: <b>%d</b>\nЗаблокировали бота: <b>%d</b>", successCount, failCount), telebot.ModeHTML)
+	}()
+
+	return c.Send("⏳ Запущена массовая рассылка. Вы получите уведомление по её завершении.")
 }
 
 // ========== ЗАПИСИ ==========
@@ -301,6 +432,10 @@ func (ah *AdminHandler) HandleAdminSettings(c telebot.Context) error {
 		),
 		menu.Row(
 			menu.Data("🛡 Настроить защиту", "admin_set_protection"),
+			menu.Data("📸 Портфолио", "admin_set_channel"),
+		),
+		menu.Row(
+			menu.Data("💳 Kaspi Ссылка", "admin_set_kaspi"),
 		),
 		menu.Row(
 			menu.Data("💬 Поддержка ID", "admin_set_support"),
@@ -310,6 +445,38 @@ func (ah *AdminHandler) HandleAdminSettings(c telebot.Context) error {
 
 	log.Printf("✅ [ADMIN] Показываю панель настроек\n")
 	return c.Send(text, menu)
+}
+
+// HandleAdminSetKaspi начинает изменение ссылки Kaspi
+func (ah *AdminHandler) HandleAdminSetKaspi(c telebot.Context) error {
+	userID := c.Sender().ID
+
+	session := ah.stateManager.GetUserSession(userID)
+	session.State = models.StateAdminSetKaspiLink
+	ah.stateManager.SetUserSession(userID, session)
+
+	text := "💳 Введите новую ссылку на оплату Kaspi (начинается с `https://pay.kaspi.kz/`):"
+	msg, err := ah.bot.Send(c.Sender(), text)
+	if err == nil {
+		ah.stateManager.AddMessageToDelete(userID, msg.ID)
+	}
+	return err
+}
+
+// HandleAdminSetChannel начинает изменение ссылки на канал/портфолио
+func (ah *AdminHandler) HandleAdminSetChannel(c telebot.Context) error {
+	userID := c.Sender().ID
+
+	session := ah.stateManager.GetUserSession(userID)
+	session.State = models.StateAdminSetChannelLink
+	ah.stateManager.SetUserSession(userID, session)
+
+	text := "📸 Введите ссылку на канал или портфолио (например, `https://t.me/my_salon`):"
+	msg, err := ah.bot.Send(c.Sender(), text)
+	if err == nil {
+		ah.stateManager.AddMessageToDelete(userID, msg.ID)
+	}
+	return err
 }
 
 // HandleAdminSetProtection начинает настройку защиты
@@ -655,6 +822,48 @@ func (ah *AdminHandler) HandleAdminInputProtection(c telebot.Context) error {
 		return c.Send(fmt.Sprintf("✅ Защита ВКЛЮЧЕНА.\nОплата наличными доступна только после %d успешно завершенных заказов.", minOrders))
 	}
 	return c.Send("✅ Защита ОТКЛЮЧЕНА.\nВсе клиенты могут оплачивать наличными.")
+}
+
+// HandleAdminInputKaspi обрабатывает ввод ссылки на Kaspi
+func (ah *AdminHandler) HandleAdminInputKaspi(c telebot.Context) error {
+	ctx := context.Background()
+	userID := c.Sender().ID
+	link := strings.TrimSpace(c.Message().Text)
+
+	if !strings.HasPrefix(link, "http") {
+		return c.Send("❌ Ссылка должна начинаться с http:// или https://")
+	}
+
+	_, err := ah.db.Exec(ctx, `UPDATE salon_settings SET kaspi_link = $1`, link)
+	if err != nil {
+		log.Printf("❌ Ошибка обновления Kaspi: %v\n", err)
+		return c.Send("❌ Ошибка при сохранении")
+	}
+
+	ah.stateManager.ResetState(userID)
+
+	return c.Send(fmt.Sprintf("✅ Ссылка Kaspi обновлена:\n%s", link))
+}
+
+// HandleAdminInputChannel обрабатывает ввод ссылки на портфолио
+func (ah *AdminHandler) HandleAdminInputChannel(c telebot.Context) error {
+	ctx := context.Background()
+	userID := c.Sender().ID
+	link := strings.TrimSpace(c.Message().Text)
+
+	if !strings.HasPrefix(link, "http") {
+		return c.Send("❌ Ссылка должна начинаться с http:// или https://")
+	}
+
+	_, err := ah.db.Exec(ctx, `UPDATE salon_settings SET about_channel_link = $1`, link)
+	if err != nil {
+		log.Printf("❌ Ошибка обновления канала: %v\n", err)
+		return c.Send("❌ Ошибка при сохранении")
+	}
+
+	ah.stateManager.ResetState(userID)
+
+	return c.Send(fmt.Sprintf("✅ Ссылка на портфолио обновлена:\n%s", link))
 }
 
 // Helper function

@@ -93,9 +93,18 @@ func (ch *ClientHandler) HandleStart(c telebot.Context) error {
 	// Отправляем приветствие
 	text := fmt.Sprintf("💅 Привет, %s!\n\nДобро пожаловать в салон красоты! 💄", c.Sender().FirstName)
 
+	// Получаем ссылку на портфолио
+	portfolioLink := ""
+	salonSettings, err := ch.db.GetSalonSettings(ctx)
+	if err == nil {
+		if link, ok := salonSettings["about_channel_link"].(string); ok && link != "" {
+			portfolioLink = link
+		}
+	}
+
 	// Главное меню
 	menu := &telebot.ReplyMarkup{}
-	menu.Inline(
+	btnRows := []telebot.Row{
 		menu.Row(
 			menu.Data("📅 Записаться", "book_appointment"),
 			menu.Data("ℹ️ О нас", "about"),
@@ -104,7 +113,15 @@ func (ch *ClientHandler) HandleStart(c telebot.Context) error {
 			menu.Data("📋 Мои записи", "my_appointments"),
 			menu.Data("📞 Поддержка", "support"),
 		),
-	)
+	}
+
+	if portfolioLink != "" {
+		btnRows = append(btnRows, menu.Row(
+			telebot.Btn{Text: "📸 Наше Портфолио", URL: portfolioLink},
+		))
+	}
+
+	menu.Inline(btnRows...)
 
 	log.Printf("✅ [МЕНЮ] Отправляю главное меню пользователю %d\n", userID)
 

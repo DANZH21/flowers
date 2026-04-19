@@ -34,6 +34,7 @@ const (
 	StateAdminSetSalonName
 	StateAdminSetAddress
 	StateAdminSetProtection
+	StateAdminBroadcast
 )
 
 // AppointmentDraft - черновик записи на услугу

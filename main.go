@@ -308,6 +308,9 @@ func main() {
 		case "admin_set_support":
 			c.Respond()
 			return adminHandler.HandleAdminSetSupportID(c)
+		case "admin_set_protection":
+			c.Respond()
+			return adminHandler.HandleAdminSetProtection(c)
 		case "admin_stats":
 			c.Respond()
 			return c.Send("📊 Статистика (в разработке)")
@@ -355,6 +358,8 @@ func main() {
 			return adminHandler.HandleAdminInputPrepayPercent(c)
 		case models.StateAdminSetSupportID:
 			return adminHandler.HandleAdminInputSupportID(c)
+		case models.StateAdminSetProtection:
+			return adminHandler.HandleAdminInputProtection(c)
 		case models.StateAdminEditServiceName:
 			return handleEditServiceName(c, stateManager, database, adminHandler)
 		case models.StateAdminEditServicePrice:

@@ -455,19 +455,40 @@ func (ch *ClientHandler) showPaymentMethod(c telebot.Context, userID int64) erro
 		text += fmt.Sprintf("Предоплата (%d%%): %g тг\n", prepayPercent, prepayAmount)
 	}
 
+	// Проверка на защиту записи (защита от фейковых записей)
+	protectionEnabled := false
+	if val, ok := salonSettings["protection_enabled"].(bool); ok {
+		protectionEnabled = val
+	}
+	protectionMinOrders := 0
+	if val, ok := salonSettings["protection_min_orders"].(int); ok {
+		protectionMinOrders = val
+	}
+
+	canUseCash := true
+	if protectionEnabled && protectionMinOrders > 0 {
+		var completedOrders int
+		err := ch.db.QueryRow(ctx,
+			`SELECT COUNT(*) FROM appointments WHERE user_id = $1 AND status = 'completed'`, userID).Scan(&completedOrders)
+		if err == nil && completedOrders < protectionMinOrders {
+			canUseCash = false
+		}
+	}
+
 	menu := &telebot.ReplyMarkup{}
 	var btnRows []telebot.Row
 
-	if prepayPercent > 0 {
-		btnRows = append(btnRows, menu.Row(
-			menu.Data(fmt.Sprintf("💳 Kaspi Red (предоплата %g тг)", prepayAmount),
-				fmt.Sprintf("payment_kaspi_%d", userID)),
-		))
-	}
-
 	btnRows = append(btnRows, menu.Row(
-		menu.Data("💵 Наличные", fmt.Sprintf("payment_cash_%d", userID)),
+		menu.Data("💳 Перевод (Kaspi)", fmt.Sprintf("payment_kaspi_%d", userID)),
 	))
+
+	if canUseCash {
+		btnRows = append(btnRows, menu.Row(
+			menu.Data("💵 Наличные", fmt.Sprintf("payment_cash_%d", userID)),
+		))
+	} else {
+		text += fmt.Sprintf("\n⚠️ Оплата наличными доступна только после %d успешно завершенных визитов.", protectionMinOrders)
+	}
 
 	btnRows = append(btnRows, menu.Row(
 		menu.Data("🏠 Меню", "main_menu"),

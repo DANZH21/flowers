@@ -130,10 +130,10 @@ func (ah *AdminHandler) HandleAdminAppointments(c telebot.Context) error {
 	rows, err := ah.db.Query(ctx,
 		`SELECT a.id, a.appointment_num, a.customer_name, a.status, a.appointment_time
 		FROM appointments a
-		WHERE a.status IN ($1, $2, $3)
-		ORDER BY a.appointment_time DESC
+		WHERE a.status IN ($1, $2)
+		ORDER BY a.appointment_time ASC
 		LIMIT 20`,
-		models.AppointmentStatusScheduled, models.AppointmentStatusConfirmed, models.AppointmentStatusCompleted)
+		models.AppointmentStatusScheduled, models.AppointmentStatusConfirmed)
 	if err != nil {
 		log.Printf("❌ [ADMIN] Ошибка получения записей: %v\n", err)
 		return c.Send("❌ Ошибка при загрузке записей")
@@ -267,16 +267,23 @@ func (ah *AdminHandler) HandleAdminSettings(c telebot.Context) error {
 		return c.Send("❌ Ошибка")
 	}
 
+	protectionText := "❌ Выкл"
+	if enabled, ok := salonSettings["protection_enabled"].(bool); ok && enabled {
+		protectionText = fmt.Sprintf("✅ ВКЛ (мин. %d заказ(ов))", salonSettings["protection_min_orders"])
+	}
+
 	text := fmt.Sprintf(
 		"⚙️ НАСТРОЙКИ САЛОНА\n\n"+
 			"Название: %s\n"+
 			"Адрес: %s\n"+
 			"📅 Рабочее время: %s - %s\n"+
 			"🔔 Напоминание за: %d ч\n"+
-			"💳 Предоплата: %d%%\n",
+			"💳 Предоплата: %d%%\n"+
+			"🛡 Защита (наличные после N): %s\n",
 		salonSettings["salon_name"], salonSettings["address"],
 		salonSettings["schedule_open"], salonSettings["schedule_close"],
-		salonSettings["reminder_hours"], salonSettings["prepay_percent"])
+		salonSettings["reminder_hours"], salonSettings["prepay_percent"],
+		protectionText)
 
 	menu := &telebot.ReplyMarkup{}
 	menu.Inline(
@@ -293,6 +300,9 @@ func (ah *AdminHandler) HandleAdminSettings(c telebot.Context) error {
 			menu.Data("💳 Предоплата %", "admin_set_prepay"),
 		),
 		menu.Row(
+			menu.Data("🛡 Настроить защиту", "admin_set_protection"),
+		),
+		menu.Row(
 			menu.Data("💬 Поддержка ID", "admin_set_support"),
 			menu.Data("🏠 Меню", "main_menu"),
 		),
@@ -300,6 +310,22 @@ func (ah *AdminHandler) HandleAdminSettings(c telebot.Context) error {
 
 	log.Printf("✅ [ADMIN] Показываю панель настроек\n")
 	return c.Send(text, menu)
+}
+
+// HandleAdminSetProtection начинает настройку защиты
+func (ah *AdminHandler) HandleAdminSetProtection(c telebot.Context) error {
+	userID := c.Sender().ID
+
+	session := ah.stateManager.GetUserSession(userID)
+	session.State = models.StateAdminSetProtection
+	ah.stateManager.SetUserSession(userID, session)
+
+	text := "🛡 Введите количество успешных записей для разрешения оплаты наличными (например, `3`).\n\nВведите `0`, чтобы отключить защиту (разрешить всем)."
+	msg, err := ah.bot.Send(c.Sender(), text, telebot.ModeMarkdown)
+	if err == nil {
+		ah.stateManager.AddMessageToDelete(userID, msg.ID)
+	}
+	return err
 }
 
 // HandleAdminSetName начинает изменение названия
@@ -599,6 +625,36 @@ func (ah *AdminHandler) HandleAdminInputSupportID(c telebot.Context) error {
 
 	text := fmt.Sprintf("✅ ID поддержки установлен: %d", supportID)
 	return c.Send(text)
+}
+
+// HandleAdminInputProtection обрабатывает ввод для защиты
+func (ah *AdminHandler) HandleAdminInputProtection(c telebot.Context) error {
+	ctx := context.Background()
+	userID := c.Sender().ID
+	input := strings.TrimSpace(c.Message().Text)
+
+	minOrders := 0
+	_, err := fmt.Sscanf(input, "%d", &minOrders)
+	if err != nil || minOrders < 0 {
+		return c.Send("❌ Введите корректное число (0 или больше)")
+	}
+
+	enabled := minOrders > 0
+
+	_, err = ah.db.Exec(ctx,
+		`UPDATE salon_settings SET protection_enabled = $1, protection_min_orders = $2`,
+		enabled, minOrders)
+	if err != nil {
+		log.Printf("❌ Ошибка обновления защиты: %v\n", err)
+		return c.Send("❌ Ошибка при сохранении")
+	}
+
+	ah.stateManager.ResetState(userID)
+
+	if enabled {
+		return c.Send(fmt.Sprintf("✅ Защита ВКЛЮЧЕНА.\nОплата наличными доступна только после %d успешно завершенных заказов.", minOrders))
+	}
+	return c.Send("✅ Защита ОТКЛЮЧЕНА.\nВсе клиенты могут оплачивать наличными.")
 }
 
 // Helper function

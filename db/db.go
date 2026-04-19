@@ -78,28 +78,32 @@ func (d *Database) GetSalonSettings(ctx context.Context) (map[string]interface{}
 	row := d.pool.QueryRow(ctx, `
 		SELECT 
 			id, salon_name, address, support_user_id, kaspi_link, about_channel_link,
-			schedule_open, schedule_close, reminder_hours, prepay_percent
+			schedule_open, schedule_close, reminder_hours, prepay_percent,
+			protection_enabled, protection_min_orders
 		FROM salon_settings LIMIT 1
 	`)
 
-	var id, reminderHours, prepayPercent int
+	var id, reminderHours, prepayPercent, protectionMinOrders int
 	var salonName, address, kaspiLink, aboutChannelLink, scheduleOpen, scheduleClose string
 	var supportUserID *int64
+	var protectionEnabled bool
 
 	if err := row.Scan(&id, &salonName, &address, &supportUserID, &kaspiLink, &aboutChannelLink,
-		&scheduleOpen, &scheduleClose, &reminderHours, &prepayPercent); err != nil {
+		&scheduleOpen, &scheduleClose, &reminderHours, &prepayPercent, &protectionEnabled, &protectionMinOrders); err != nil {
 		return nil, err
 	}
 
 	return map[string]interface{}{
-		"salon_name":         salonName,
-		"address":            address,
-		"support_user_id":    supportUserID,
-		"kaspi_link":         kaspiLink,
-		"about_channel_link": aboutChannelLink,
-		"schedule_open":      scheduleOpen,
-		"schedule_close":     scheduleClose,
-		"reminder_hours":     reminderHours,
-		"prepay_percent":     prepayPercent,
+		"salon_name":            salonName,
+		"address":               address,
+		"support_user_id":       supportUserID,
+		"kaspi_link":            kaspiLink,
+		"about_channel_link":    aboutChannelLink,
+		"schedule_open":         scheduleOpen,
+		"schedule_close":        scheduleClose,
+		"reminder_hours":        reminderHours,
+		"prepay_percent":        prepayPercent,
+		"protection_enabled":    protectionEnabled,
+		"protection_min_orders": protectionMinOrders,
 	}, nil
 }

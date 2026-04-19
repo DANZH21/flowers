@@ -33,6 +33,7 @@ const (
 	StateAdminSetChannelLink
 	StateAdminSetSalonName
 	StateAdminSetAddress
+	StateAdminSetProtection
 )
 
 // AppointmentDraft - черновик записи на услугу

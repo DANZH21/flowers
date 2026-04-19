@@ -80,6 +80,10 @@ func (d *Database) RunMigrations(ctx context.Context, cfg *config.Config) error 
 
 		// Добавляем колонку receipt_status если её нет
 		`ALTER TABLE appointments ADD COLUMN IF NOT EXISTS receipt_status TEXT DEFAULT 'pending'`,
+
+		// Защита записей (наличные только после N заказов)
+		`ALTER TABLE salon_settings ADD COLUMN IF NOT EXISTS protection_enabled BOOLEAN DEFAULT FALSE`,
+		`ALTER TABLE salon_settings ADD COLUMN IF NOT EXISTS protection_min_orders INT DEFAULT 0`,
 	}
 
 	for _, migration := range migrations {

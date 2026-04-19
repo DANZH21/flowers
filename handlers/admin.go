@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"context"
@@ -56,7 +56,7 @@ func (ah *AdminHandler) HandleAdminMenu(c telebot.Context) error {
 	userID := c.Sender().ID
 
 	if !ah.IsAdmin(userID) {
-		return c.Send("❌ Доступ запрещён. Вы не администратор.")
+		return sendOrEdit(c, "❌ Доступ запрещён. Вы не администратор.")
 	}
 
 	log.Printf("📊 [АДМИН] Админ %d открыл панель\n", userID)
@@ -119,7 +119,7 @@ func (ah *AdminHandler) HandleAdminMenu(c telebot.Context) error {
 	)
 
 	log.Printf("✅ [ADMIN] Показываю панель настроек\n")
-	return c.Send(text, menu)
+	return sendOrEdit(c, text, menu)
 }
 
 // ========== СТАТИСТИКА ==========
@@ -185,7 +185,7 @@ func (ah *AdminHandler) HandleAdminStats(c telebot.Context, period string) error
 	if c.Callback() != nil {
 		return c.Edit(text, telebot.ModeHTML, menu)
 	}
-	return c.Send(text, telebot.ModeHTML, menu)
+	return sendOrEdit(c, text, telebot.ModeHTML, menu)
 }
 
 // ========== РАССЫЛКА ==========
@@ -220,7 +220,7 @@ func (ah *AdminHandler) HandleAdminInputBroadcast(c telebot.Context) error {
 
 	rows, err := ah.db.Query(ctx, "SELECT telegram_id FROM users")
 	if err != nil {
-		return c.Send("❌ Ошибка получения пользователей базы")
+		return sendOrEdit(c, "❌ Ошибка получения пользователей базы")
 	}
 	defer rows.Close()
 
@@ -247,7 +247,7 @@ func (ah *AdminHandler) HandleAdminInputBroadcast(c telebot.Context) error {
 		ah.bot.Send(&telebot.User{ID: userID}, fmt.Sprintf("✅ <b>Рассылка завершена!</b>\n\nУспешно доставлено: <b>%d</b>\nЗаблокировали бота: <b>%d</b>", successCount, failCount), telebot.ModeHTML)
 	}()
 
-	return c.Send("⏳ Запущена массовая рассылка. Вы получите уведомление по её завершении.")
+	return sendOrEdit(c, "⏳ Запущена массовая рассылка. Вы получите уведомление по её завершении.")
 }
 
 // ========== ЗАПИСИ ==========
@@ -267,7 +267,7 @@ func (ah *AdminHandler) HandleAdminAppointments(c telebot.Context) error {
 		models.AppointmentStatusScheduled, models.AppointmentStatusConfirmed)
 	if err != nil {
 		log.Printf("❌ [ADMIN] Ошибка получения записей: %v\n", err)
-		return c.Send("❌ Ошибка при загрузке записей")
+		return sendOrEdit(c, "❌ Ошибка при загрузке записей")
 	}
 	defer rows.Close()
 
@@ -310,7 +310,7 @@ func (ah *AdminHandler) HandleAdminAppointments(c telebot.Context) error {
 	}
 
 	log.Printf("✅ [ADMIN] Показываю список записей\n")
-	return c.Send("📅 Активные записи:", menu)
+	return sendOrEdit(c, "📅 Активные записи:", menu)
 }
 
 // HandleAdminServices показывает список услуг
@@ -325,7 +325,7 @@ func (ah *AdminHandler) HandleAdminServices(c telebot.Context) error {
 		`SELECT id, name, price, duration_min, is_available FROM services ORDER BY name`)
 	if err != nil {
 		log.Printf("❌ Ошибка получения услуг: %v\n", err)
-		return c.Send("❌ Ошибка при загрузке услуг")
+		return sendOrEdit(c, "❌ Ошибка при загрузке услуг")
 	}
 	defer rows.Close()
 
@@ -365,7 +365,7 @@ func (ah *AdminHandler) HandleAdminServices(c telebot.Context) error {
 	menu.Inline(btnRows...)
 
 	log.Printf("✅ [ADMIN] Показываю %d услуг\n", len(btnRows)-1)
-	return c.Send(text, menu)
+	return sendOrEdit(c, text, menu)
 }
 
 // HandleAdminAddService начинает добавление услуги
@@ -395,7 +395,7 @@ func (ah *AdminHandler) HandleAdminSettings(c telebot.Context) error {
 	salonSettings, err := ah.db.GetSalonSettings(ctx)
 	if err != nil {
 		log.Printf("❌ [ADMIN] Ошибка получения настроек: %v\n", err)
-		return c.Send("❌ Ошибка")
+		return sendOrEdit(c, "❌ Ошибка")
 	}
 
 	protectionText := "❌ Выкл"
@@ -444,7 +444,7 @@ func (ah *AdminHandler) HandleAdminSettings(c telebot.Context) error {
 	)
 
 	log.Printf("✅ [ADMIN] Показываю панель настроек\n")
-	return c.Send(text, menu)
+	return sendOrEdit(c, text, menu)
 }
 
 // HandleAdminSetKaspi начинает изменение ссылки Kaspi
@@ -536,7 +536,7 @@ func (ah *AdminHandler) HandleAdminInputSalonName(c telebot.Context) error {
 	name := strings.TrimSpace(c.Message().Text)
 
 	if len(name) < 2 || len(name) > 100 {
-		return c.Send("❌ Название должно быть от 2 до 100 символов")
+		return sendOrEdit(c, "❌ Название должно быть от 2 до 100 символов")
 	}
 
 	// Обновляем в БД
@@ -544,13 +544,13 @@ func (ah *AdminHandler) HandleAdminInputSalonName(c telebot.Context) error {
 		`UPDATE salon_settings SET salon_name = $1`, name)
 	if err != nil {
 		log.Printf("❌ Ошибка обновления названия: %v\n", err)
-		return c.Send("❌ Ошибка при сохранении")
+		return sendOrEdit(c, "❌ Ошибка при сохранении")
 	}
 
 	ah.stateManager.ResetState(userID)
 
 	text := fmt.Sprintf("✅ Название салона изменено на: %s", name)
-	return c.Send(text)
+	return sendOrEdit(c, text)
 }
 
 // HandleAdminInputAddress обрабатывает ввод адреса
@@ -560,7 +560,7 @@ func (ah *AdminHandler) HandleAdminInputAddress(c telebot.Context) error {
 	address := strings.TrimSpace(c.Message().Text)
 
 	if len(address) < 2 || len(address) > 200 {
-		return c.Send("❌ Адрес должен быть от 2 до 200 символов")
+		return sendOrEdit(c, "❌ Адрес должен быть от 2 до 200 символов")
 	}
 
 	// Обновляем в БД
@@ -568,13 +568,13 @@ func (ah *AdminHandler) HandleAdminInputAddress(c telebot.Context) error {
 		`UPDATE salon_settings SET address = $1`, address)
 	if err != nil {
 		log.Printf("❌ Ошибка обновления адреса: %v\n", err)
-		return c.Send("❌ Ошибка при сохранении")
+		return sendOrEdit(c, "❌ Ошибка при сохранении")
 	}
 
 	ah.stateManager.ResetState(userID)
 
 	text := fmt.Sprintf("✅ Адрес салона изменен на: %s", address)
-	return c.Send(text)
+	return sendOrEdit(c, text)
 }
 
 // HandleAdminSetScheduleOpen начинает изменение времени открытия
@@ -602,7 +602,7 @@ func (ah *AdminHandler) HandleAdminInputScheduleOpen(c telebot.Context) error {
 
 	// Проверяем формат
 	if !isValidTimeFormat(timeStr) {
-		return c.Send("❌ Неверный формат. Используйте: 10:00")
+		return sendOrEdit(c, "❌ Неверный формат. Используйте: 10:00")
 	}
 
 	// Обновляем в БД
@@ -610,13 +610,13 @@ func (ah *AdminHandler) HandleAdminInputScheduleOpen(c telebot.Context) error {
 		`UPDATE salon_settings SET schedule_open = $1`, timeStr)
 	if err != nil {
 		log.Printf("❌ Ошибка обновления времени: %v\n", err)
-		return c.Send("❌ Ошибка при сохранении")
+		return sendOrEdit(c, "❌ Ошибка при сохранении")
 	}
 
 	ah.stateManager.ResetState(userID)
 
 	text := fmt.Sprintf("✅ Время открытия установлено: %s", timeStr)
-	return c.Send(text)
+	return sendOrEdit(c, text)
 }
 
 // HandleAdminSetScheduleClose начинает изменение времени закрытия
@@ -644,7 +644,7 @@ func (ah *AdminHandler) HandleAdminInputScheduleClose(c telebot.Context) error {
 
 	// Проверяем формат
 	if !isValidTimeFormat(timeStr) {
-		return c.Send("❌ Неверный формат. Используйте: 20:00")
+		return sendOrEdit(c, "❌ Неверный формат. Используйте: 20:00")
 	}
 
 	// Обновляем в БД
@@ -652,13 +652,13 @@ func (ah *AdminHandler) HandleAdminInputScheduleClose(c telebot.Context) error {
 		`UPDATE salon_settings SET schedule_close = $1`, timeStr)
 	if err != nil {
 		log.Printf("❌ Ошибка обновления времени: %v\n", err)
-		return c.Send("❌ Ошибка при сохранении")
+		return sendOrEdit(c, "❌ Ошибка при сохранении")
 	}
 
 	ah.stateManager.ResetState(userID)
 
 	text := fmt.Sprintf("✅ Время закрытия установлено: %s", timeStr)
-	return c.Send(text)
+	return sendOrEdit(c, text)
 }
 
 // HandleAdminSetReminderHours начинает изменение напоминания
@@ -687,7 +687,7 @@ func (ah *AdminHandler) HandleAdminInputReminderHours(c telebot.Context) error {
 	hours := 0
 	_, err := fmt.Sscanf(input, "%d", &hours)
 	if err != nil || hours < 1 || hours > 24 {
-		return c.Send("❌ Введите число от 1 до 24")
+		return sendOrEdit(c, "❌ Введите число от 1 до 24")
 	}
 
 	// Обновляем в БД
@@ -695,13 +695,13 @@ func (ah *AdminHandler) HandleAdminInputReminderHours(c telebot.Context) error {
 		`UPDATE salon_settings SET reminder_hours = $1`, hours)
 	if err != nil {
 		log.Printf("❌ Ошибка обновления напоминания: %v\n", err)
-		return c.Send("❌ Ошибка при сохранении")
+		return sendOrEdit(c, "❌ Ошибка при сохранении")
 	}
 
 	ah.stateManager.ResetState(userID)
 
 	text := fmt.Sprintf("✅ Напоминание установлено за %d ч перед записью", hours)
-	return c.Send(text)
+	return sendOrEdit(c, text)
 }
 
 // HandleAdminSetPrepayPercent начинает изменение % предоплаты
@@ -730,7 +730,7 @@ func (ah *AdminHandler) HandleAdminInputPrepayPercent(c telebot.Context) error {
 	percent := 0
 	_, err := fmt.Sscanf(input, "%d", &percent)
 	if err != nil || percent < 0 || percent > 100 {
-		return c.Send("❌ Введите число от 0 до 100")
+		return sendOrEdit(c, "❌ Введите число от 0 до 100")
 	}
 
 	// Обновляем в БД
@@ -738,7 +738,7 @@ func (ah *AdminHandler) HandleAdminInputPrepayPercent(c telebot.Context) error {
 		`UPDATE salon_settings SET prepay_percent = $1`, percent)
 	if err != nil {
 		log.Printf("❌ Ошибка обновления предоплаты: %v\n", err)
-		return c.Send("❌ Ошибка при сохранении")
+		return sendOrEdit(c, "❌ Ошибка при сохранении")
 	}
 
 	ah.stateManager.ResetState(userID)
@@ -748,7 +748,7 @@ func (ah *AdminHandler) HandleAdminInputPrepayPercent(c telebot.Context) error {
 		status = fmt.Sprintf("установлена на %d%%", percent)
 	}
 	text := fmt.Sprintf("✅ Предоплата %s", status)
-	return c.Send(text)
+	return sendOrEdit(c, text)
 }
 
 // HandleAdminSetSupportID начинает установку ID поддержки
@@ -777,7 +777,7 @@ func (ah *AdminHandler) HandleAdminInputSupportID(c telebot.Context) error {
 	supportID := int64(0)
 	_, err := fmt.Sscanf(input, "%d", &supportID)
 	if err != nil || supportID <= 0 {
-		return c.Send("❌ Введите корректный Telegram ID (число)")
+		return sendOrEdit(c, "❌ Введите корректный Telegram ID (число)")
 	}
 
 	// Обновляем в БД
@@ -785,13 +785,13 @@ func (ah *AdminHandler) HandleAdminInputSupportID(c telebot.Context) error {
 		`UPDATE salon_settings SET support_user_id = $1`, supportID)
 	if err != nil {
 		log.Printf("❌ Ошибка обновления ID поддержки: %v\n", err)
-		return c.Send("❌ Ошибка при сохранении")
+		return sendOrEdit(c, "❌ Ошибка при сохранении")
 	}
 
 	ah.stateManager.ResetState(userID)
 
 	text := fmt.Sprintf("✅ ID поддержки установлен: %d", supportID)
-	return c.Send(text)
+	return sendOrEdit(c, text)
 }
 
 // HandleAdminInputProtection обрабатывает ввод для защиты
@@ -803,7 +803,7 @@ func (ah *AdminHandler) HandleAdminInputProtection(c telebot.Context) error {
 	minOrders := 0
 	_, err := fmt.Sscanf(input, "%d", &minOrders)
 	if err != nil || minOrders < 0 {
-		return c.Send("❌ Введите корректное число (0 или больше)")
+		return sendOrEdit(c, "❌ Введите корректное число (0 или больше)")
 	}
 
 	enabled := minOrders > 0
@@ -813,15 +813,15 @@ func (ah *AdminHandler) HandleAdminInputProtection(c telebot.Context) error {
 		enabled, minOrders)
 	if err != nil {
 		log.Printf("❌ Ошибка обновления защиты: %v\n", err)
-		return c.Send("❌ Ошибка при сохранении")
+		return sendOrEdit(c, "❌ Ошибка при сохранении")
 	}
 
 	ah.stateManager.ResetState(userID)
 
 	if enabled {
-		return c.Send(fmt.Sprintf("✅ Защита ВКЛЮЧЕНА.\nОплата наличными доступна только после %d успешно завершенных заказов.", minOrders))
+		return sendOrEdit(c, fmt.Sprintf("✅ Защита ВКЛЮЧЕНА.\nОплата наличными доступна только после %d успешно завершенных заказов.", minOrders))
 	}
-	return c.Send("✅ Защита ОТКЛЮЧЕНА.\nВсе клиенты могут оплачивать наличными.")
+	return sendOrEdit(c, "✅ Защита ОТКЛЮЧЕНА.\nВсе клиенты могут оплачивать наличными.")
 }
 
 // HandleAdminInputKaspi обрабатывает ввод ссылки на Kaspi
@@ -831,18 +831,18 @@ func (ah *AdminHandler) HandleAdminInputKaspi(c telebot.Context) error {
 	link := strings.TrimSpace(c.Message().Text)
 
 	if !strings.HasPrefix(link, "http") {
-		return c.Send("❌ Ссылка должна начинаться с http:// или https://")
+		return sendOrEdit(c, "❌ Ссылка должна начинаться с http:// или https://")
 	}
 
 	_, err := ah.db.Exec(ctx, `UPDATE salon_settings SET kaspi_link = $1`, link)
 	if err != nil {
 		log.Printf("❌ Ошибка обновления Kaspi: %v\n", err)
-		return c.Send("❌ Ошибка при сохранении")
+		return sendOrEdit(c, "❌ Ошибка при сохранении")
 	}
 
 	ah.stateManager.ResetState(userID)
 
-	return c.Send(fmt.Sprintf("✅ Ссылка Kaspi обновлена:\n%s", link))
+	return sendOrEdit(c, fmt.Sprintf("✅ Ссылка Kaspi обновлена:\n%s", link))
 }
 
 // HandleAdminInputChannel обрабатывает ввод ссылки на портфолио
@@ -852,18 +852,18 @@ func (ah *AdminHandler) HandleAdminInputChannel(c telebot.Context) error {
 	link := strings.TrimSpace(c.Message().Text)
 
 	if !strings.HasPrefix(link, "http") {
-		return c.Send("❌ Ссылка должна начинаться с http:// или https://")
+		return sendOrEdit(c, "❌ Ссылка должна начинаться с http:// или https://")
 	}
 
 	_, err := ah.db.Exec(ctx, `UPDATE salon_settings SET about_channel_link = $1`, link)
 	if err != nil {
 		log.Printf("❌ Ошибка обновления канала: %v\n", err)
-		return c.Send("❌ Ошибка при сохранении")
+		return sendOrEdit(c, "❌ Ошибка при сохранении")
 	}
 
 	ah.stateManager.ResetState(userID)
 
-	return c.Send(fmt.Sprintf("✅ Ссылка на портфолио обновлена:\n%s", link))
+	return sendOrEdit(c, fmt.Sprintf("✅ Ссылка на портфолио обновлена:\n%s", link))
 }
 
 // Helper function
@@ -894,7 +894,7 @@ func (ah *AdminHandler) HandleConfirmReceipt(c telebot.Context, appointmentID in
 
 	if err := row.Scan(&userID, &appointmentNum, &amount); err != nil {
 		log.Printf("❌ Ошибка получения записи: %v\n", err)
-		return c.Send("❌ Запись не найдена")
+		return sendOrEdit(c, "❌ Запись не найдена")
 	}
 
 	// Обновляем статус чека
@@ -903,7 +903,7 @@ func (ah *AdminHandler) HandleConfirmReceipt(c telebot.Context, appointmentID in
 		models.ReceiptStatusConfirmed, appointmentID)
 	if err != nil {
 		log.Printf("❌ Ошибка обновления статуса чека: %v\n", err)
-		return c.Send("❌ Ошибка при подтверждении")
+		return sendOrEdit(c, "❌ Ошибка при подтверждении")
 	}
 
 	log.Printf("✅ Чек для записи #%d подтвержден\n", appointmentNum)
@@ -915,7 +915,7 @@ func (ah *AdminHandler) HandleConfirmReceipt(c telebot.Context, appointmentID in
 		log.Printf("⚠️ Ошибка отправки подтверждения клиенту: %v\n", err)
 	}
 
-	return c.Send(fmt.Sprintf("✅ Чек #%d подтвержден", appointmentNum))
+	return sendOrEdit(c, fmt.Sprintf("✅ Чек #%d подтвержден", appointmentNum))
 }
 
 // HandleRejectReceipt отклоняет чек администратором
@@ -933,7 +933,7 @@ func (ah *AdminHandler) HandleRejectReceipt(c telebot.Context, appointmentID int
 
 	if err := row.Scan(&userID, &appointmentNum); err != nil {
 		log.Printf("❌ Ошибка получения записи: %v\n", err)
-		return c.Send("❌ Запись не найдена")
+		return sendOrEdit(c, "❌ Запись не найдена")
 	}
 
 	// Обновляем статус чека
@@ -942,7 +942,7 @@ func (ah *AdminHandler) HandleRejectReceipt(c telebot.Context, appointmentID int
 		models.ReceiptStatusRejected, appointmentID)
 	if err != nil {
 		log.Printf("❌ Ошибка обновления статуса чека: %v\n", err)
-		return c.Send("❌ Ошибка при отклонении")
+		return sendOrEdit(c, "❌ Ошибка при отклонении")
 	}
 
 	log.Printf("✅ Чек для записи #%d отклонен\n", appointmentNum)
@@ -954,7 +954,7 @@ func (ah *AdminHandler) HandleRejectReceipt(c telebot.Context, appointmentID int
 		log.Printf("⚠️ Ошибка отправки отклонения клиенту: %v\n", err)
 	}
 
-	return c.Send(fmt.Sprintf("❌ Чек #%d отклонен", appointmentNum))
+	return sendOrEdit(c, fmt.Sprintf("❌ Чек #%d отклонен", appointmentNum))
 }
 
 // ========== РЕДАКТИРОВАНИЕ УСЛУГИ ==========
@@ -976,7 +976,7 @@ func (ah *AdminHandler) HandleAdminEditService(c telebot.Context, serviceID int)
 
 	if err := row.Scan(&id, &name, &price, &duration, &isAvailable); err != nil {
 		log.Printf("❌ Ошибка получения услуги: %v\n", err)
-		return c.Send("❌ Услуга не найдена")
+		return sendOrEdit(c, "❌ Услуга не найдена")
 	}
 
 	availability := "✅ Доступна"
@@ -1008,7 +1008,7 @@ func (ah *AdminHandler) HandleAdminEditService(c telebot.Context, serviceID int)
 		),
 	)
 
-	return c.Send(text, menu)
+	return sendOrEdit(c, text, menu)
 }
 
 // ========== ДЕТАЛИ ЗАПИСИ ==========
@@ -1038,7 +1038,7 @@ func (ah *AdminHandler) HandleAdminViewAppointmentDetail(c telebot.Context, appo
 	if err := row.Scan(&id, &appointmentNum, &customerNamePtr, &customerPhonePtr, &appointmentTime,
 		&status, &amount, &paymentTypePtr, &serviceName, &receiptStatusPtr, &receiptURL); err != nil {
 		log.Printf("❌ Ошибка получения записи: %v\n", err)
-		return c.Send("❌ Запись не найдена")
+		return sendOrEdit(c, "❌ Запись не найдена")
 	}
 
 	customerName := "Неизвестный"
@@ -1123,5 +1123,5 @@ func (ah *AdminHandler) HandleAdminViewAppointmentDetail(c telebot.Context, appo
 
 	menu.Inline(rows...)
 
-	return c.Send(text, menu)
+	return sendOrEdit(c, text, menu)
 }

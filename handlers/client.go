@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"context"
@@ -388,7 +388,7 @@ func (ch *ClientHandler) HandleNameInput(c telebot.Context) error {
 	name := c.Message().Text
 
 	if len(name) < 2 || len(name) > 100 {
-		return c.Send("❌ Имя должно быть от 2 до 100 символов")
+		return sendOrEdit(c, "❌ Имя должно быть от 2 до 100 символов")
 	}
 
 	log.Printf("👤 [ИМЯ] Пользователь %d ввел имя: %s\n", userID, name)
@@ -431,7 +431,7 @@ func (ch *ClientHandler) HandlePhoneInput(c telebot.Context) error {
 	// Проверяем формат номера
 	phoneRegex := regexp.MustCompile(`^\+?\d{10,15}$`)
 	if !phoneRegex.MatchString(phone) {
-		return c.Send("❌ Неверный формат номера. Используйте формат: +77771234567")
+		return sendOrEdit(c, "❌ Неверный формат номера. Используйте формат: +77771234567")
 	}
 
 	log.Printf("📱 [ТЕЛЕФОН] Пользователь %d ввел телефон: %s\n", userID, phone)
@@ -598,20 +598,20 @@ func (ch *ClientHandler) HandleReceiptUpload(c telebot.Context) error {
 
 	photo := c.Message().Photo
 	if photo == nil {
-		return c.Send("❌ Пожалуйста, отправьте скриншот чека")
+		return sendOrEdit(c, "❌ Пожалуйста, отправьте скриншот чека")
 	}
 
 	// Получаем файл с Telegram серверов
 	fileReader, err := ch.bot.File(&photo.File)
 	if err != nil {
 		log.Printf("❌ Ошибка получения файла: %v\n", err)
-		return c.Send("❌ Ошибка при загрузке файла")
+		return sendOrEdit(c, "❌ Ошибка при загрузке файла")
 	}
 
 	fileBytes, err := io.ReadAll(fileReader)
 	if err != nil {
 		log.Printf("❌ Ошибка чтения файла: %v\n", err)
-		return c.Send("❌ Ошибка при чтении файла")
+		return sendOrEdit(c, "❌ Ошибка при чтении файла")
 	}
 
 	// Загружаем в S3
@@ -619,7 +619,7 @@ func (ch *ClientHandler) HandleReceiptUpload(c telebot.Context) error {
 	receiptURL, err := services.UploadFileToS3(fileBytes, fileName, "image/jpeg", "receipts")
 	if err != nil {
 		log.Printf("❌ Ошибка загрузки в S3: %v\n", err)
-		return c.Send("❌ Ошибка при сохранении чека")
+		return sendOrEdit(c, "❌ Ошибка при сохранении чека")
 	}
 
 	log.Printf("✅ Чек загружен: %s\n", receiptURL)
@@ -647,7 +647,7 @@ func (ch *ClientHandler) createAppointment(c telebot.Context, userID int64) erro
 	appointmentTime, err := time.Parse("2006-01-02 15:04", dateTimeStr)
 	if err != nil {
 		log.Printf("❌ Ошибка парсинга даты/времени: %v\n", err)
-		return c.Send("❌ Ошибка при обработке даты")
+		return sendOrEdit(c, "❌ Ошибка при обработке даты")
 	}
 
 	// Получаем информацию об услуге
@@ -657,7 +657,7 @@ func (ch *ClientHandler) createAppointment(c telebot.Context, userID int64) erro
 	var price float64
 	if err := row.Scan(&serviceName, &price); err != nil {
 		log.Printf("❌ Ошибка получения услуги: %v\n", err)
-		return c.Send("❌ Услуга не найдена")
+		return sendOrEdit(c, "❌ Услуга не найдена")
 	}
 
 	// Определяем URL чека (если есть)
@@ -685,7 +685,7 @@ func (ch *ClientHandler) createAppointment(c telebot.Context, userID int64) erro
 	var appointmentID, appointmentNum int
 	if err := insertRow.Scan(&appointmentID, &appointmentNum); err != nil {
 		log.Printf("❌ Ошибка создания записи: %v\n", err)
-		return c.Send("❌ Ошибка при создании записи")
+		return sendOrEdit(c, "❌ Ошибка при создании записи")
 	}
 
 	log.Printf("✅ Запись создана: ID=%d, Номер=%d\n", appointmentID, appointmentNum)
@@ -748,7 +748,7 @@ func (ch *ClientHandler) HandleMyAppointments(c telebot.Context) error {
 		userID, models.AppointmentStatusCancelled)
 	if err != nil {
 		log.Printf("❌ Ошибка получения записей: %v\n", err)
-		return c.Send("❌ Ошибка при загрузке записей")
+		return sendOrEdit(c, "❌ Ошибка при загрузке записей")
 	}
 	defer rows.Close()
 

@@ -1,4 +1,4 @@
-package main
+﻿package main
 
 import (
 	"context"
@@ -115,7 +115,7 @@ func main() {
 		log.Printf("   IsAdmin: %v\n", isAdmin)
 		if !isAdmin {
 			log.Printf("   ❌ Пользователь %d не является администратором\n", userID)
-			return c.Send("❌ Доступ запрещён. Вы не администратор.\n\nАдминистратор ID: " + fmt.Sprintf("%d", userID))
+			return sendOrEdit(c, "❌ Доступ запрещён. Вы не администратор.\n\nАдминистратор ID: " + fmt.Sprintf("%d", userID))
 		}
 		log.Printf("   ✅ Пользователь %d имеет права администратора\n", userID)
 		return adminHandler.HandleAdminMenu(c)
@@ -197,7 +197,7 @@ func main() {
 			session.State = models.StateAdminEditServiceName
 			session.TempData = map[string]interface{}{"serviceID": serviceID}
 			stateManager.SetUserSession(userID, session)
-			return c.Send("📝 Введите новое название услуги:")
+			return sendOrEdit(c, "📝 Введите новое название услуги:")
 
 		case strings.HasPrefix(data, "edit_service_price_"):
 			var serviceID int
@@ -207,7 +207,7 @@ func main() {
 			session.State = models.StateAdminEditServicePrice
 			session.TempData = map[string]interface{}{"serviceID": serviceID}
 			stateManager.SetUserSession(userID, session)
-			return c.Send("💰 Введите новую цену услуги (в тг):")
+			return sendOrEdit(c, "💰 Введите новую цену услуги (в тг):")
 
 		case strings.HasPrefix(data, "edit_service_duration_"):
 			var serviceID int
@@ -217,7 +217,7 @@ func main() {
 			session.State = models.StateAdminEditServiceDuration
 			session.TempData = map[string]interface{}{"serviceID": serviceID}
 			stateManager.SetUserSession(userID, session)
-			return c.Send("⏱️ Введите длительность услуги (в минутах):")
+			return sendOrEdit(c, "⏱️ Введите длительность услуги (в минутах):")
 
 		case strings.HasPrefix(data, "edit_service_toggle_"):
 			var serviceID int
@@ -229,11 +229,11 @@ func main() {
 			if err := row.Scan(&isAvail); err == nil {
 				database.Exec(ctx, `UPDATE services SET is_available = $1 WHERE id = $2`, !isAvail, serviceID)
 				if !isAvail {
-					return c.Send("✅ Услуга активирована")
+					return sendOrEdit(c, "✅ Услуга активирована")
 				}
-				return c.Send("❌ Услуга деактивирована")
+				return sendOrEdit(c, "❌ Услуга деактивирована")
 			}
-			return c.Send("❌ Ошибка")
+			return sendOrEdit(c, "❌ Ошибка")
 
 		case strings.HasPrefix(data, "edit_service_delete_"):
 			var serviceID int
@@ -241,21 +241,21 @@ func main() {
 			c.Respond()
 			ctx := context.Background()
 			database.Exec(ctx, `DELETE FROM services WHERE id = $1`, serviceID)
-			return c.Send("✅ Услуга удалена")
+			return sendOrEdit(c, "✅ Услуга удалена")
 
 		case strings.HasPrefix(data, "apt_complete_"):
 			var aptID int
 			fmt.Sscanf(data, "apt_complete_%d", &aptID)
 			c.Respond()
 			database.Exec(context.Background(), `UPDATE appointments SET status = $1, updated_at = NOW() WHERE id = $2`, models.AppointmentStatusCompleted, aptID)
-			return c.Send("✅ Запись завершена")
+			return sendOrEdit(c, "✅ Запись завершена")
 
 		case strings.HasPrefix(data, "apt_cancel_"):
 			var aptID int
 			fmt.Sscanf(data, "apt_cancel_%d", &aptID)
 			c.Respond()
 			database.Exec(context.Background(), `UPDATE appointments SET status = $1, updated_at = NOW() WHERE id = $2`, models.AppointmentStatusCancelled, aptID)
-			return c.Send("❌ Запись отменена")
+			return sendOrEdit(c, "❌ Запись отменена")
 		}
 
 		// ========== СТАТИЧНЫЕ РОУТЫ ==========
@@ -268,10 +268,10 @@ func main() {
 			return clientHandler.HandleMyAppointments(c)
 		case "about":
 			c.Respond()
-			return c.Send("ℹ️ *BEAUTY SALON*\n📍 Адрес: Алматы\n⏰ 10:00 - 20:00")
+			return sendOrEdit(c, "ℹ️ *BEAUTY SALON*\n📍 Адрес: Алматы\n⏰ 10:00 - 20:00")
 		case "support":
 			c.Respond()
-			return c.Send("📞 *Поддержка*\nTelegram: @salon_support")
+			return sendOrEdit(c, "📞 *Поддержка*\nTelegram: @salon_support")
 		case "main_menu":
 			c.Respond()
 			return clientHandler.HandleStart(c)
@@ -395,7 +395,7 @@ func main() {
 			return handleEditServiceDuration(c, stateManager, database, adminHandler)
 		}
 
-		return c.Send("❓ Я не знаю как ответить на это. Нажмите /start для главного меню.")
+		return sendOrEdit(c, "❓ Я не знаю как ответить на это. Нажмите /start для главного меню.")
 	})
 
 	// Обработчик для загрузки фото (чек)
@@ -412,7 +412,7 @@ func main() {
 			return adminHandler.HandleAdminInputBroadcast(c)
 		}
 
-		return c.Send("❌ В данный момент фото не требуются")
+		return sendOrEdit(c, "❌ В данный момент фото не требуются")
 	})
 
 	// Обработчик для контактов
@@ -426,7 +426,7 @@ func main() {
 			return clientHandler.HandlePhoneInput(c)
 		}
 
-		return c.Send("❌ В данный момент номер телефона не требуется")
+		return sendOrEdit(c, "❌ В данный момент номер телефона не требуется")
 	})
 
 	// ========== GRACEFUL SHUTDOWN ==========
@@ -477,7 +477,7 @@ func handleAddServiceName(c telebot.Context, sm *handlers.StateManager) error {
 	name := strings.TrimSpace(c.Message().Text)
 
 	if len(name) < 2 || len(name) > 100 {
-		return c.Send("❌ Название должно быть от 2 до 100 символов")
+		return sendOrEdit(c, "❌ Название должно быть от 2 до 100 символов")
 	}
 
 	session := sm.GetUserSession(userID)
@@ -488,7 +488,7 @@ func handleAddServiceName(c telebot.Context, sm *handlers.StateManager) error {
 	session.TempData["newServiceName"] = name
 	sm.SetUserSession(userID, session)
 
-	return c.Send("💰 Введите цену услуги (в тг):")
+	return sendOrEdit(c, "💰 Введите цену услуги (в тг):")
 }
 
 func handleAddServicePrice(c telebot.Context, sm *handlers.StateManager) error {
@@ -497,7 +497,7 @@ func handleAddServicePrice(c telebot.Context, sm *handlers.StateManager) error {
 
 	var price float64
 	if _, err := fmt.Sscanf(priceStr, "%f", &price); err != nil || price <= 0 || price > 999999 {
-		return c.Send("❌ Введите корректную цену (число от 1 до 999999):")
+		return sendOrEdit(c, "❌ Введите корректную цену (число от 1 до 999999):")
 	}
 
 	session := sm.GetUserSession(userID)
@@ -505,7 +505,7 @@ func handleAddServicePrice(c telebot.Context, sm *handlers.StateManager) error {
 	session.TempData["newServicePrice"] = price
 	sm.SetUserSession(userID, session)
 
-	return c.Send("⏱️ Введите длительность услуги (в минутах):")
+	return sendOrEdit(c, "⏱️ Введите длительность услуги (в минутах):")
 }
 
 func handleAddServiceDuration(c telebot.Context, sm *handlers.StateManager, database *db.Database) error {
@@ -514,7 +514,7 @@ func handleAddServiceDuration(c telebot.Context, sm *handlers.StateManager, data
 
 	var duration int
 	if _, err := fmt.Sscanf(durationStr, "%d", &duration); err != nil || duration < 5 || duration > 1440 {
-		return c.Send("❌ Введите корректную длительность в минутах (от 5 до 1440):")
+		return sendOrEdit(c, "❌ Введите корректную длительность в минутах (от 5 до 1440):")
 	}
 
 	session := sm.GetUserSession(userID)
@@ -524,11 +524,11 @@ func handleAddServiceDuration(c telebot.Context, sm *handlers.StateManager, data
 	ctx := context.Background()
 	_, err := database.Exec(ctx, `INSERT INTO services (name, price, duration_min, is_available) VALUES ($1, $2, $3, true)`, name, price, duration)
 	if err != nil {
-		return c.Send("❌ Ошибка при сохранении услуги")
+		return sendOrEdit(c, "❌ Ошибка при сохранении услуги")
 	}
 
 	sm.ResetState(userID)
-	return c.Send("✅ Услуга успешно добавлена!\nНажмите /admin для возврата в панель.")
+	return sendOrEdit(c, "✅ Услуга успешно добавлена!\nНажмите /admin для возврата в панель.")
 }
 
 // Обработчики редактирования услуг
@@ -538,21 +538,21 @@ func handleEditServiceName(c telebot.Context, sm *handlers.StateManager, databas
 	name := strings.TrimSpace(c.Message().Text)
 
 	if len(name) < 2 || len(name) > 100 {
-		return c.Send("❌ Название должно быть от 2 до 100 символов")
+		return sendOrEdit(c, "❌ Название должно быть от 2 до 100 символов")
 	}
 
 	session := sm.GetUserSession(userID)
 	serviceID, ok := session.TempData["serviceID"].(int)
 	if !ok {
-		return c.Send("❌ Ошибка: неверный ID услуги")
+		return sendOrEdit(c, "❌ Ошибка: неверный ID услуги")
 	}
 
 	if _, err := database.Exec(ctx, `UPDATE services SET name = $1 WHERE id = $2`, name, serviceID); err != nil {
-		return c.Send("❌ Ошибка при сохранении")
+		return sendOrEdit(c, "❌ Ошибка при сохранении")
 	}
 
 	sm.ResetState(userID)
-	return c.Send("✅ Название услуги обновлено")
+	return sendOrEdit(c, "✅ Название услуги обновлено")
 }
 
 func handleEditServicePrice(c telebot.Context, sm *handlers.StateManager, database *db.Database, ah *handlers.AdminHandler) error {
@@ -562,21 +562,21 @@ func handleEditServicePrice(c telebot.Context, sm *handlers.StateManager, databa
 
 	price := 0.0
 	if _, err := fmt.Sscanf(priceStr, "%f", &price); err != nil || price <= 0 || price > 999999 {
-		return c.Send("❌ Введите корректную цену (1-999999)")
+		return sendOrEdit(c, "❌ Введите корректную цену (1-999999)")
 	}
 
 	session := sm.GetUserSession(userID)
 	serviceID, ok := session.TempData["serviceID"].(int)
 	if !ok {
-		return c.Send("❌ Ошибка: неверный ID услуги")
+		return sendOrEdit(c, "❌ Ошибка: неверный ID услуги")
 	}
 
 	if _, err := database.Exec(ctx, `UPDATE services SET price = $1 WHERE id = $2`, price, serviceID); err != nil {
-		return c.Send("❌ Ошибка при сохранении")
+		return sendOrEdit(c, "❌ Ошибка при сохранении")
 	}
 
 	sm.ResetState(userID)
-	return c.Send(fmt.Sprintf("✅ Цена услуги обновлена: %g тг", price))
+	return sendOrEdit(c, fmt.Sprintf("✅ Цена услуги обновлена: %g тг", price))
 }
 
 func handleEditServiceDuration(c telebot.Context, sm *handlers.StateManager, database *db.Database, ah *handlers.AdminHandler) error {
@@ -586,21 +586,21 @@ func handleEditServiceDuration(c telebot.Context, sm *handlers.StateManager, dat
 
 	duration := 0
 	if _, err := fmt.Sscanf(durationStr, "%d", &duration); err != nil || duration < 15 || duration > 480 {
-		return c.Send("❌ Введите длительность от 15 до 480 минут")
+		return sendOrEdit(c, "❌ Введите длительность от 15 до 480 минут")
 	}
 
 	session := sm.GetUserSession(userID)
 	serviceID, ok := session.TempData["serviceID"].(int)
 	if !ok {
-		return c.Send("❌ Ошибка: неверный ID услуги")
+		return sendOrEdit(c, "❌ Ошибка: неверный ID услуги")
 	}
 
 	if _, err := database.Exec(ctx, `UPDATE services SET duration_min = $1 WHERE id = $2`, duration, serviceID); err != nil {
-		return c.Send("❌ Ошибка при сохранении")
+		return sendOrEdit(c, "❌ Ошибка при сохранении")
 	}
 
 	sm.ResetState(userID)
-	return c.Send(fmt.Sprintf("✅ Длительность услуги обновлена: %d мин", duration))
+	return sendOrEdit(c, fmt.Sprintf("✅ Длительность услуги обновлена: %d мин", duration))
 }
 
 func min(a, b int) int {
@@ -608,4 +608,11 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func sendOrEdit(c telebot.Context, msg interface{}, opts ...interface{}) error {
+if c.Callback() != nil {
+return c.Edit(msg, opts...)
+}
+return c.Send(msg, opts...)
 }

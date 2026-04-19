@@ -190,16 +190,45 @@ func (ah *AdminHandler) HandleAdminStats(c telebot.Context, period string) error
 
 // ========== РАССЫЛКА ==========
 
-// HandleAdminBroadcast начинает массовую рассылку
+// HandleAdminBroadcast начинает выбор аудитории для рассылки
 func (ah *AdminHandler) HandleAdminBroadcast(c telebot.Context) error {
+	text := "📣 <b>Массовая рассылка</b>\n\nВыберите, кому вы хотите отправить сообщение:"
+
+	menu := &telebot.ReplyMarkup{}
+	menu.Inline(
+		menu.Row(menu.Data("🌐 Всем пользователям", "admin_broadcast_target_all")),
+		menu.Row(menu.Data("⭐ Клиентам (1+ запись)", "admin_broadcast_target_clients")),
+		menu.Row(menu.Data("💎 Частым (3+ записи)", "admin_broadcast_target_vip")),
+		menu.Row(menu.Data("❄️ Ни разу не были (0 записей)", "admin_broadcast_target_new")),
+		menu.Row(menu.Data("❌ Отмена", "admin_menu")),
+	)
+
+	return sendOrEdit(c, text, telebot.ModeHTML, menu)
+}
+
+// HandleAdminBroadcastTarget сохраняет цель и ждет текст
+func (ah *AdminHandler) HandleAdminBroadcastTarget(c telebot.Context, target string) error {
 	userID := c.Sender().ID
 
 	session := ah.stateManager.GetUserSession(userID)
 	session.State = models.StateAdminBroadcast
+	if session.TempData == nil {
+		session.TempData = make(map[string]interface{})
+	}
+	session.TempData["broadcast_target"] = target
 	ah.stateManager.SetUserSession(userID, session)
 
-	text := "📣 <b>Массовая рассылка</b>\n\nОтправьте текст или фото, которое хотите разослать всем зарегистрированным клиентам. Рассылку получат все пользователи из базы.\n\n" +
-		"<i>Для отмены нажмите /cancel.</i>"
+	targetName := "всем"
+	switch target {
+	case "clients":
+		targetName = "клиентам (были хотя бы 1 раз)"
+	case "vip":
+		targetName = "частым клиентам (от 3 записей)"
+	case "new":
+		targetName = "новым (ни разу не записались)"
+	}
+
+	text := fmt.Sprintf("📣 <b>Рассылка: %s</b>\n\nОтправьте текст или фото, которое хотите разослать.\n\n<i>Для отмены нажмите /cancel.</i>", targetName)
 
 	menu := &telebot.ReplyMarkup{}
 	menu.Inline(menu.Row(menu.Data("❌ Отмена", "admin_menu")))
@@ -216,11 +245,38 @@ func (ah *AdminHandler) HandleAdminInputBroadcast(c telebot.Context) error {
 	ctx := context.Background()
 	userID := c.Sender().ID
 
+	session := ah.stateManager.GetUserSession(userID)
+
+	target := "all"
+	if session.TempData != nil {
+		if val, ok := session.TempData["broadcast_target"].(string); ok {
+			target = val
+		}
+	}
+
 	ah.stateManager.ResetState(userID)
 
-	rows, err := ah.db.Query(ctx, "SELECT telegram_id FROM users")
+	query := "SELECT telegram_id FROM users"
+	switch target {
+	case "clients":
+		query = `SELECT DISTINCT u.telegram_id FROM users u
+				 JOIN appointments a ON u.telegram_id = a.user_id 
+				 WHERE a.status IN ('completed', 'confirmed')`
+	case "vip":
+		query = `SELECT u.telegram_id FROM users u
+				 JOIN appointments a ON u.telegram_id = a.user_id 
+				 WHERE a.status IN ('completed', 'confirmed')
+				 GROUP BY u.telegram_id HAVING COUNT(a.id) >= 3`
+	case "new":
+		query = `SELECT u.telegram_id FROM users u
+				 LEFT JOIN appointments a ON u.telegram_id = a.user_id
+				 WHERE a.id IS NULL`
+	}
+
+	rows, err := ah.db.Query(ctx, query)
 	if err != nil {
-		return sendOrEdit(c, "❌ Ошибка получения пользователей базы")
+		log.Printf("❌ Ошибка SQL рассылки: %v", err)
+		return sendOrEdit(c, "❌ Ошибка получения базы для рассылки")
 	}
 	defer rows.Close()
 
@@ -230,6 +286,10 @@ func (ah *AdminHandler) HandleAdminInputBroadcast(c telebot.Context) error {
 		if err := rows.Scan(&uid); err == nil {
 			userIDs = append(userIDs, uid)
 		}
+	}
+
+	if len(userIDs) == 0 {
+		return sendOrEdit(c, "📭 Не найдено пользователей для этой группы.")
 	}
 
 	go func() {
@@ -244,10 +304,10 @@ func (ah *AdminHandler) HandleAdminInputBroadcast(c telebot.Context) error {
 				successCount++
 			}
 		}
-		ah.bot.Send(&telebot.User{ID: userID}, fmt.Sprintf("✅ <b>Рассылка завершена!</b>\n\nУспешно доставлено: <b>%d</b>\nЗаблокировали бота: <b>%d</b>", successCount, failCount), telebot.ModeHTML)
+		ah.bot.Send(&telebot.User{ID: userID}, fmt.Sprintf("✅ <b>Рассылка завершена!</b>\n\nУспешно доставлено: <b>%d</b>\nЗаблокировали бота: <b>%d</b>\nКатегория: <b>%s</b>", successCount, failCount, target), telebot.ModeHTML)
 	}()
 
-	return sendOrEdit(c, "⏳ Запущена массовая рассылка. Вы получите уведомление по её завершении.")
+	return sendOrEdit(c, fmt.Sprintf("⏳ Запущена массовая рассылка по %d пользователям!\nВы получите уведомление по её завершении.", len(userIDs)))
 }
 
 // ========== ЗАПИСИ ==========

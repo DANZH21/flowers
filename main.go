@@ -189,6 +189,11 @@ func main() {
 			c.Respond()
 			return adminHandler.HandleAdminViewAppointmentDetail(c, aptID)
 
+		case strings.HasPrefix(data, "admin_broadcast_target_"):
+			target := strings.TrimPrefix(data, "admin_broadcast_target_")
+			c.Respond()
+			return adminHandler.HandleAdminBroadcastTarget(c, target)
+
 		case strings.HasPrefix(data, "edit_service_name_"):
 			var serviceID int
 			fmt.Sscanf(data, "edit_service_name_%d", &serviceID)

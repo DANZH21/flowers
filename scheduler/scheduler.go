@@ -47,8 +47,12 @@ func (s *Scheduler) ScheduleAppointmentReminder(appointmentID int, userID int64,
 	duration := time.Until(reminderTime)
 
 	if duration <= 0 {
-		// Запись уже прошла или время напоминания истекло
-		return
+		if time.Now().After(appointmentTime) {
+			// Запись уже прошла
+			return
+		}
+		// Время напоминания уже наступило, отправляем прямо сейчас (с небольшой задержкой)
+		duration = 2 * time.Second
 	}
 
 	// Отменяем предыдущий таймер если есть
@@ -66,12 +70,18 @@ func (s *Scheduler) ScheduleAppointmentReminder(appointmentID int, userID int64,
 			WHERE a.id = $1`, appointmentID)
 
 		var id, appointmentNum int
-		var serviceName, customerName string
+		var serviceName string
+		var customerNamePtr *string
 		var apptTime time.Time
 
-		if err := row.Scan(&id, &appointmentNum, &serviceName, &apptTime, &customerName); err != nil {
+		if err := row.Scan(&id, &appointmentNum, &serviceName, &apptTime, &customerNamePtr); err != nil {
 			log.Printf("❌ Ошибка получения записи: %v\n", err)
 			return
+		}
+
+		customerName := "Неизвестный клиент"
+		if customerNamePtr != nil {
+			customerName = *customerNamePtr
 		}
 
 		// Отправляем напоминание
@@ -79,10 +89,11 @@ func (s *Scheduler) ScheduleAppointmentReminder(appointmentID int, userID int64,
 		msg := fmt.Sprintf(
 			"🔔 Напоминание о вашей записи!\n\n"+
 				"#%d\n"+
+				"� %s\n"+
 				"💅 %s\n"+
 				"📅 %s\n\n"+
 				"Вы готовы к визиту? ✅",
-			appointmentNum, serviceName, apptTime.Format("02 Jan 15:04"))
+			appointmentNum, customerName, serviceName, apptTime.Format("02 Jan 15:04"))
 
 		if _, err := s.bot.Send(user, msg); err != nil {
 			log.Printf("❌ Ошибка отправки напоминания пользователю %d: %v\n", userID, err)
@@ -174,4 +185,61 @@ func (s *Scheduler) Shutdown() {
 		delete(s.timers, key)
 	}
 	log.Println("✅ Все таймеры завершены")
+}
+
+// RestoreTimers восстанавливает все таймеры напоминаний и чеков после перезапуска бота
+func (s *Scheduler) RestoreTimers() {
+	log.Println("⏲️ Восстановление таймеров...")
+	ctx := context.Background()
+
+	// 1. Восстанавливаем напоминания (status in ('scheduled', 'confirmed') и reminder_sent = false, дата в будущем)
+	rows, err := s.db.Query(ctx,
+		`SELECT id, user_id, appointment_time 
+		 FROM appointments 
+		 WHERE status IN ($1, $2) AND reminder_sent = false AND appointment_time > NOW()`,
+		models.AppointmentStatusScheduled, models.AppointmentStatusConfirmed)
+
+	if err == nil {
+		count := 0
+		for rows.Next() {
+			var id int
+			var userID int64
+			var apptTime time.Time
+			if err := rows.Scan(&id, &userID, &apptTime); err == nil {
+				s.ScheduleAppointmentReminder(id, userID, apptTime)
+				count++
+			}
+		}
+		rows.Close()
+		log.Printf("✅ Восстановлено таймеров напоминаний: %d\n", count)
+	} else {
+		log.Printf("❌ Ошибка при восстановлении напоминаний: %v\n", err)
+	}
+
+	// 2. Восстанавливаем дедлайны по чекам (status 'scheduled' и receipt_status = 'pending')
+	receiptRows, err := s.db.Query(ctx,
+		`SELECT id, user_id, receipt_deadline 
+		 FROM appointments 
+		 WHERE status = $1 AND receipt_status = $2 AND receipt_deadline > NOW()`,
+		models.AppointmentStatusScheduled, models.ReceiptStatusPending)
+
+	if err == nil {
+		receiptCount := 0
+		for receiptRows.Next() {
+			var id int
+			var userID int64
+			var deadline time.Time
+			if err := receiptRows.Scan(&id, &userID, &deadline); err == nil {
+				duration := time.Until(deadline)
+				if duration > 0 {
+					s.ScheduleReceiptDeadline(id, userID, duration)
+					receiptCount++
+				}
+			}
+		}
+		receiptRows.Close()
+		log.Printf("✅ Восстановлено таймеров чеков: %d\n", receiptCount)
+	} else {
+		log.Printf("❌ Ошибка при восстановлении дедлайнов чеков: %v\n", err)
+	}
 }

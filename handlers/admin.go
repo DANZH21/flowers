@@ -141,15 +141,22 @@ func (ah *AdminHandler) HandleAdminAppointments(c telebot.Context) error {
 	defer rows.Close()
 
 	menu := &telebot.ReplyMarkup{}
+	var btnRows []telebot.Row
 
 	for rows.Next() {
 		var id, appointmentNum int
-		var customerName, status string
+		var customerNamePtr *string
+		var status string
 		var appointmentTime time.Time
 
-		if err := rows.Scan(&id, &appointmentNum, &customerName, &status, &appointmentTime); err != nil {
+		if err := rows.Scan(&id, &appointmentNum, &customerNamePtr, &status, &appointmentTime); err != nil {
 			log.Printf("❌ Ошибка сканирования записи: %v\n", err)
 			continue
+		}
+
+		customerName := "Неизвестный клиент"
+		if customerNamePtr != nil {
+			customerName = *customerNamePtr
 		}
 
 		statusEmoji := map[string]string{
@@ -159,14 +166,16 @@ func (ah *AdminHandler) HandleAdminAppointments(c telebot.Context) error {
 			models.AppointmentStatusCancelled: "❌",
 		}[status]
 
-		menu.Inline(
-			menu.Row(
-				menu.Data(
-					fmt.Sprintf("%s #%d — %s — %s", statusEmoji, appointmentNum, customerName, appointmentTime.Format("02/01 15:04")),
-					fmt.Sprintf("admin_apt_detail_%d", id),
-				),
+		btnRows = append(btnRows, menu.Row(
+			menu.Data(
+				fmt.Sprintf("%s #%d — %s — %s", statusEmoji, appointmentNum, customerName, appointmentTime.Format("02/01 15:04")),
+				fmt.Sprintf("admin_apt_detail_%d", id),
 			),
-		)
+		))
+	}
+
+	if len(btnRows) > 0 {
+		menu.Inline(btnRows...)
 	}
 
 	log.Printf("✅ [ADMIN] Показываю список записей\n")
@@ -755,15 +764,36 @@ func (ah *AdminHandler) HandleAdminViewAppointmentDetail(c telebot.Context, appo
 		 WHERE a.id = $1`, appointmentID)
 
 	var id, appointmentNum int
-	var customerName, customerPhone, status, paymentType, serviceName, receiptStatus string
+	var customerNamePtr, customerPhonePtr, paymentTypePtr, receiptStatusPtr *string
+	var serviceName, status string
 	var appointmentTime time.Time
 	var amount float64
 	var receiptURL *string
 
-	if err := row.Scan(&id, &appointmentNum, &customerName, &customerPhone, &appointmentTime,
-		&status, &amount, &paymentType, &serviceName, &receiptStatus, &receiptURL); err != nil {
+	if err := row.Scan(&id, &appointmentNum, &customerNamePtr, &customerPhonePtr, &appointmentTime,
+		&status, &amount, &paymentTypePtr, &serviceName, &receiptStatusPtr, &receiptURL); err != nil {
 		log.Printf("❌ Ошибка получения записи: %v\n", err)
 		return c.Send("❌ Запись не найдена")
+	}
+
+	customerName := "Неизвестный"
+	if customerNamePtr != nil {
+		customerName = *customerNamePtr
+	}
+
+	customerPhone := "Не указан"
+	if customerPhonePtr != nil {
+		customerPhone = *customerPhonePtr
+	}
+
+	paymentType := "Не указан"
+	if paymentTypePtr != nil {
+		paymentType = *paymentTypePtr
+	}
+
+	receiptStatus := "pending"
+	if receiptStatusPtr != nil {
+		receiptStatus = *receiptStatusPtr
 	}
 
 	statusEmoji := map[string]string{
